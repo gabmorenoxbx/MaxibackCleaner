@@ -1,3 +1,4 @@
+
 using System;
 using MaxibackCleaner.Models;
 using MaxibackCleaner.Services;
@@ -10,6 +11,7 @@ namespace MaxibackCleaner
         [STAThread]
         static void Main(string[] args)
         {
+            // Las limpiezas automáticas no muestran ventanas.
             if (args.Length > 0 &&
                 args[0].Equals(
                     "--clean",
@@ -50,7 +52,7 @@ namespace MaxibackCleaner
                     }
                     catch
                     {
-                        // No mostrar ventanas durante la limpieza automática.
+                        // No mostrar ventanas durante la limpieza.
                     }
 
                     Environment.ExitCode = 1;
@@ -59,7 +61,32 @@ namespace MaxibackCleaner
                 return;
             }
 
+            // Inicio normal de la aplicación.
             ApplicationConfiguration.Initialize();
+
+            // 1. Verificar la licencia.
+            if (!LicenseService.IsActivated())
+            {
+                using (LicenseForm licenseForm = new LicenseForm())
+                {
+                    if (licenseForm.ShowDialog() != DialogResult.OK)
+                    {
+                        return;
+                    }
+                }
+            }
+
+            // 2. Configurar el administrador la primera vez
+            // o solicitar sus credenciales en los siguientes inicios.
+            using (AdminLoginForm loginForm = new AdminLoginForm())
+            {
+                if (loginForm.ShowDialog() != DialogResult.OK)
+                {
+                    return;
+                }
+            }
+
+            // 3. Abrir la ventana principal solo si pasó ambos controles.
             Application.Run(new Form1());
         }
     }

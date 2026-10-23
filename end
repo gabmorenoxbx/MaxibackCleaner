@@ -1,0 +1,12 @@
+warning: in the working copy of '.gitattributes', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of '.gitignore', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'Form1.Designer.cs', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'Form1.resx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'MaxibackCleaner.csproj', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'MaxibackCleaner.slnx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'Models/AppSettings.cs', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'Program.cs', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'Services/AppLogger.cs', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'Services/CleanerServices.cs', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'Services/TaskSchedulerService.cs', LF will be replaced by CRLF the next time Git touches it

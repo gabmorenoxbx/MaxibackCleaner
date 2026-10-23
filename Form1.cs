@@ -24,6 +24,17 @@ namespace MaxibackCleaner
 
         private bool exitRequested = false;
 
+        private bool darkMode = false;
+
+        private readonly string themeFile = Path.Combine(
+            Environment.GetFolderPath(
+                Environment.SpecialFolder.LocalApplicationData),
+            "MaxibackCleaner",
+            "theme.txt");
+
+        private Button btnTheme = null!;
+
+
         private readonly string frequencyFile = Path.Combine(
             Environment.GetFolderPath(
                 Environment.SpecialFolder.LocalApplicationData),
@@ -138,6 +149,28 @@ namespace MaxibackCleaner
                 Height = 70
             };
 
+            btnTheme = new Button
+            {
+                Text = "🌙 Modo oscuro",
+                Left = 380,
+                Top = 225,
+                Width = 160,
+                Height = 35
+            };
+
+            btnTheme.Click += (s, e) =>
+            {
+                darkMode = !darkMode;
+                ApplyTheme();
+                SaveTheme();
+            };
+
+            Controls.Add(btnTheme);
+
+            // Cargar el tema guardado al iniciar.
+            LoadTheme();
+
+
             btnBrowse.Click += BtnBrowse_Click;
             btnSave.Click += BtnSave_Click;
             btnClean.Click += BtnClean_Click;
@@ -211,18 +244,144 @@ namespace MaxibackCleaner
                 frequencyFile,
                 GetSelectedFrequency());
         }
+        private void ShowWithAdminLogin()
+        {
+            // Si la ventana ya está visible, no abrir otro login encima.
+            if (Visible)
+            {
+                Activate();
+                return;
+            }
+
+            // Pedir autenticación cada vez que se abre desde la bandeja.
+            using (AdminLoginForm loginForm = new AdminLoginForm())
+            {
+                if (loginForm.ShowDialog() != DialogResult.OK)
+                {
+                    Hide();
+                    return;
+                }
+            }
+
+            Show();
+            WindowState = FormWindowState.Normal;
+            Activate();
+        }
+
+        private void LoadTheme()
+        {
+            try
+            {
+                if (File.Exists(themeFile))
+                {
+                    darkMode = File.ReadAllText(themeFile).Trim()
+                        .Equals("dark", StringComparison.OrdinalIgnoreCase);
+                }
+            }
+            catch (Exception ex)
+            {
+                logger.Write("No se pudo cargar el tema: " + ex.Message);
+            }
+
+            ApplyTheme();
+        }
+
+        private void SaveTheme()
+        {
+            try
+            {
+                Directory.CreateDirectory(
+                    Path.GetDirectoryName(themeFile)!);
+
+                File.WriteAllText(
+                    themeFile,
+                    darkMode ? "dark" : "light");
+            }
+            catch (Exception ex)
+            {
+                logger.Write("No se pudo guardar el tema: " + ex.Message);
+            }
+        }
+
+        private void ApplyTheme()
+        {
+            Color background = darkMode
+                ? Color.FromArgb(35, 35, 40)
+                : Color.WhiteSmoke;
+
+            Color foreground = darkMode
+                ? Color.WhiteSmoke
+                : Color.FromArgb(30, 30, 30);
+
+            Color inputBackground = darkMode
+                ? Color.FromArgb(55, 55, 62)
+                : Color.White;
+
+            BackColor = background;
+            ForeColor = foreground;
+
+            ApplyThemeToControls(
+                Controls,
+                background,
+                foreground,
+                inputBackground);
+
+            if (btnTheme != null)
+            {
+                btnTheme.Text = darkMode
+                    ? "☀ Modo claro"
+                    : "🌙 Modo oscuro";
+            }
+        }
+
+        private void ApplyThemeToControls(
+            Control.ControlCollection controls,
+            Color background,
+            Color foreground,
+            Color inputBackground)
+        {
+            foreach (Control control in controls)
+            {
+                control.ForeColor = foreground;
+
+                if (control is TextBox || control is ComboBox)
+                {
+                    control.BackColor = inputBackground;
+                }
+                else if (control is Button button)
+                {
+                    button.BackColor = darkMode
+                        ? Color.FromArgb(65, 65, 75)
+                        : Color.FromArgb(230, 230, 235);
+
+                    button.FlatStyle = FlatStyle.Flat;
+                    button.FlatAppearance.BorderColor = darkMode
+                        ? Color.FromArgb(90, 90, 100)
+                        : Color.FromArgb(200, 200, 200);
+                }
+                else
+                {
+                    control.BackColor = background;
+                }
+
+                if (control.HasChildren)
+                {
+                    ApplyThemeToControls(
+                        control.Controls,
+                        background,
+                        foreground,
+                        inputBackground);
+                }
+            }
+        }
 
         private void ConfigureTray()
         {
             var menu = new ContextMenuStrip();
-
             menu.Items.Add("Abrir Maxiback Cleaner", null, (s, e) =>
             {
-                Show();
-                WindowState = FormWindowState.Normal;
-                Activate();
+                ShowWithAdminLogin();
             });
-
             menu.Items.Add("Limpiar ahora", null, (s, e) =>
             {
                 RunAutomaticCleanup();
@@ -242,13 +401,11 @@ namespace MaxibackCleaner
                 ContextMenuStrip = menu,
                 Visible = true
             };
-
             trayIcon.DoubleClick += (s, e) =>
             {
-                Show();
-                WindowState = FormWindowState.Normal;
-                Activate();
+                ShowWithAdminLogin();
             };
+
         }
 
         private void ConfigureTimer()
