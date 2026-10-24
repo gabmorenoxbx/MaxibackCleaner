@@ -1,4 +1,3 @@
-
 using System;
 using MaxibackCleaner.Models;
 using MaxibackCleaner.Services;
@@ -64,7 +63,7 @@ namespace MaxibackCleaner
             // Inicio normal de la aplicación.
             ApplicationConfiguration.Initialize();
 
-            // 1. Verificar la licencia.
+            // Verificar la licencia.
             if (!LicenseService.IsActivated())
             {
                 using (LicenseForm licenseForm = new LicenseForm())
@@ -76,17 +75,7 @@ namespace MaxibackCleaner
                 }
             }
 
-            // 2. Configurar el administrador la primera vez
-            // o solicitar sus credenciales en los siguientes inicios.
-            using (AdminLoginForm loginForm = new AdminLoginForm())
-            {
-                if (loginForm.ShowDialog() != DialogResult.OK)
-                {
-                    return;
-                }
-            }
-
-            // 3. Abrir la ventana principal solo si pasó ambos controles.
+            // Abrir la ventana principal.
             Application.Run(new Form1());
         }
     }

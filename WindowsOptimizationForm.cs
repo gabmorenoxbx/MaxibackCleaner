@@ -1,5 +1,4 @@
-﻿
-using System;
+﻿using System;
 using System.Diagnostics;
 using System.IO;
 using System.Runtime.InteropServices;
@@ -7,6 +6,8 @@ using System.Text;
 using System.Threading.Tasks;
 using System.Drawing;
 using System.Windows.Forms;
+using System.Management;
+using System.Text.RegularExpressions;
 
 namespace MaxibackCleaner
 {
@@ -29,6 +30,8 @@ namespace MaxibackCleaner
         private readonly Label lblCpuDetail = new();
         private readonly Label lblRamValue = new();
         private readonly Label lblRamDetail = new();
+        private readonly Label lblGpuValue = new();
+        private readonly Label lblGpuDetail = new();
         private readonly Label lblDriveValue = new();
         private readonly Label lblDriveDetail = new();
         private readonly Label lblPageTitle = new();
@@ -43,6 +46,14 @@ namespace MaxibackCleaner
         private ulong previousUser;
         private bool hasCpuSample;
         private bool recycleRunning;
+
+        // Monitor de GPU: se lee en segundo plano y se guarda el último valor.
+        private readonly GpuMonitor gpu = new();
+        private string? gpuName;
+        private float gpuUsage;
+        private float gpuVramMb;
+        private bool hasGpuSample;
+        private bool gpuReading;
 
         private static readonly Color BackgroundColor = Color.FromArgb(15, 18, 25);
         private static readonly Color CardColor = Color.FromArgb(27, 32, 43);
@@ -138,7 +149,11 @@ namespace MaxibackCleaner
             btnRefresh.Click += (_, _) => ShowDiagnostics();
             btnHardware.Click += BtnHardware_Click;
 
-            FormClosing += (_, _) => diagnosticTimer.Stop();
+            FormClosing += (_, _) =>
+            {
+                diagnosticTimer.Stop();
+                gpu.Dispose();
+            };
 
             ShowSection("optimization");
             AdjustSectionWidths();
@@ -212,14 +227,14 @@ namespace MaxibackCleaner
             var grid = new TableLayoutPanel
             {
                 Dock = DockStyle.Fill,
-                ColumnCount = 3,
+                ColumnCount = 4,
                 RowCount = 1,
                 BackColor = BackgroundColor,
                 Margin = Padding.Empty
             };
 
-            for (int i = 0; i < 3; i++)
-                grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 33.333F));
+            for (int i = 0; i < 4; i++)
+                grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 25F));
 
             grid.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
 
@@ -230,7 +245,10 @@ namespace MaxibackCleaner
                 "MEMORIA RAM", lblRamValue, lblRamDetail, "RAM"), 1, 0);
 
             grid.Controls.Add(CreateMetricCard(
-                "UNIDAD DEL SISTEMA", lblDriveValue, lblDriveDetail, "DISCO"), 2, 0);
+                "TARJETA GRÁFICA", lblGpuValue, lblGpuDetail, "GPU"), 2, 0);
+
+            grid.Controls.Add(CreateMetricCard(
+                "UNIDAD DEL SISTEMA", lblDriveValue, lblDriveDetail, "DISCO"), 3, 0);
 
             outer.Controls.Add(grid);
             return outer;
@@ -281,6 +299,7 @@ namespace MaxibackCleaner
             detail.Text = "Calculando...";
             detail.Dock = DockStyle.Bottom;
             detail.Height = 24;
+            detail.AutoEllipsis = true;
             detail.ForeColor = MutedColor;
             detail.Font = new Font("Segoe UI", 8.5F);
 
@@ -757,6 +776,39 @@ namespace MaxibackCleaner
             });
         }
 
+        // Lee la GPU en un hilo aparte para no trabar la interfaz.
+        // El resultado se guarda y se muestra en el siguiente refresco.
+        private async void RefreshGpuAsync()
+        {
+            if (gpuReading)
+                return;
+
+            gpuReading = true;
+
+            try
+            {
+                string? knownName = gpuName;
+
+                var sample = await Task.Run(() => (
+                    Name: knownName ?? gpu.GetGpuName(),
+                    Usage: gpu.GetUsagePercent(),
+                    VramMb: gpu.GetDedicatedMemoryUsedMb()));
+
+                gpuName = sample.Name;
+                gpuUsage = sample.Usage;
+                gpuVramMb = sample.VramMb;
+                hasGpuSample = true;
+            }
+            catch
+            {
+                // Se conserva el último valor leído.
+            }
+            finally
+            {
+                gpuReading = false;
+            }
+        }
+
         private void ShowDiagnostics()
         {
             if (IsDisposed || txtResults.IsDisposed || !IsHandleCreated)
@@ -815,6 +867,27 @@ namespace MaxibackCleaner
                 output.AppendLine("RAM: No disponible");
                 lblRamValue.Text = "--";
                 lblRamDetail.Text = "Lectura no disponible";
+            }
+
+            // GPU
+            RefreshGpuAsync();
+
+            output.AppendLine();
+
+            if (hasGpuSample)
+            {
+                output.AppendLine("GPU: " + gpuName);
+                output.AppendLine($"Uso de GPU: {gpuUsage:0.0}%");
+                output.AppendLine($"Memoria de video en uso: {gpuVramMb:0} MB");
+
+                lblGpuValue.Text = $"{gpuUsage:0}%";
+                lblGpuDetail.Text = $"VRAM en uso: {gpuVramMb:0} MB";
+            }
+            else
+            {
+                output.AppendLine("GPU: Calculando...");
+                lblGpuValue.Text = "--";
+                lblGpuDetail.Text = "Calculando...";
             }
 
             output.AppendLine();
@@ -1000,6 +1073,122 @@ namespace MaxibackCleaner
             public ulong TotalVirtual;
             public ulong AvailableVirtual;
             public ulong AvailableExtendedVirtual;
+        }
+    }
+
+    /// <summary>
+    /// Lee el uso de la GPU (cualquier fabricante) mediante WMI.
+    /// Requiere Windows 10 1709 o superior. No necesita paquetes NuGet extra.
+    /// </summary>
+    internal sealed class GpuMonitor : IDisposable
+    {
+        private static readonly Regex LuidRegex =
+            new(@"luid_(0x[0-9A-Fa-f]+_0x[0-9A-Fa-f]+)", RegexOptions.Compiled);
+
+        private static readonly Regex EngTypeRegex =
+            new(@"engtype_(\w+)", RegexOptions.Compiled);
+
+        /// <summary>Nombre de la primera GPU detectada.</summary>
+        public string GetGpuName()
+        {
+            try
+            {
+                using var searcher = new ManagementObjectSearcher(
+                    "SELECT Name FROM Win32_VideoController");
+                using var results = searcher.Get();
+
+                foreach (ManagementObject obj in results)
+                {
+                    using (obj)
+                    {
+                        string? name = obj["Name"]?.ToString();
+
+                        if (!string.IsNullOrWhiteSpace(name))
+                            return name;
+                    }
+                }
+            }
+            catch
+            {
+                // Se devuelve el valor por defecto.
+            }
+
+            return "GPU no detectada";
+        }
+
+        /// <summary>Uso de la GPU en porcentaje (0 a 100).</summary>
+        public float GetUsagePercent()
+        {
+            try
+            {
+                using var searcher = new ManagementObjectSearcher(
+                    "SELECT Name, UtilizationPercentage FROM " +
+                    "Win32_PerfFormattedData_GPUPerformanceCounters_GPUEngine");
+                using var results = searcher.Get();
+
+                // Se suma por GPU y tipo de motor (3D, Compute, Copy...)
+                // y se toma el más alto, igual que el Administrador de tareas.
+                var sums = new Dictionary<string, float>();
+
+                foreach (ManagementObject obj in results)
+                {
+                    using (obj)
+                    {
+                        string name = obj["Name"]?.ToString() ?? "";
+
+                        var luid = LuidRegex.Match(name);
+                        var engine = EngTypeRegex.Match(name);
+
+                        if (!luid.Success || !engine.Success)
+                            continue;
+
+                        float value = Convert.ToSingle(obj["UtilizationPercentage"] ?? 0);
+                        string key = luid.Groups[1].Value + "|" + engine.Groups[1].Value;
+
+                        sums[key] = sums.GetValueOrDefault(key) + value;
+                    }
+                }
+
+                return sums.Count == 0
+                    ? 0
+                    : Math.Min(100f, sums.Values.Max());
+            }
+            catch
+            {
+                return 0;
+            }
+        }
+
+        /// <summary>Memoria de video dedicada en uso, en MB.</summary>
+        public float GetDedicatedMemoryUsedMb()
+        {
+            try
+            {
+                using var searcher = new ManagementObjectSearcher(
+                    "SELECT DedicatedUsage FROM " +
+                    "Win32_PerfFormattedData_GPUPerformanceCounters_GPUAdapterMemory");
+                using var results = searcher.Get();
+
+                double max = 0;
+
+                foreach (ManagementObject obj in results)
+                {
+                    using (obj)
+                    {
+                        max = Math.Max(max, Convert.ToDouble(obj["DedicatedUsage"] ?? 0));
+                    }
+                }
+
+                return (float)(max / 1024d / 1024d);
+            }
+            catch
+            {
+                return 0;
+            }
+        }
+
+        public void Dispose()
+        {
         }
     }
 }

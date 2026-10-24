@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.Drawing;
 using System.IO;
@@ -18,7 +19,7 @@ namespace MaxibackCleaner
         private CleanerService cleaner;
 
         private TextBox txtFolder = null!;
-        private ComboBox cmbMonths = null!;
+        private SegmentedSelector cmbMonths = null!;
         private Label lblStatus = null!;
         private Label lblFrequencyInfo = null!;
         private NotifyIcon trayIcon = null!;
@@ -524,27 +525,24 @@ namespace MaxibackCleaner
                 "ANTIGÜEDAD DE LOS ARCHIVOS",
                 "Se eliminarán los archivos y carpetas que superen el período elegido.");
 
-            cmbMonths = new ComboBox
+            cmbMonths = new SegmentedSelector(
+                inputColor,
+                accentColor,
+                textColor)
             {
-                DropDownStyle = ComboBoxStyle.DropDownList,
-                BackColor = inputColor,
-                ForeColor = textColor,
-                FlatStyle = FlatStyle.Flat,
-                Font = new Font("Segoe UI", 10F),
-                Width = 220,
-                Height = 36
+                Dock = DockStyle.Top,
+                BackColor = cardColor,
+                Margin = new Padding(0, 15, 0, 0)
             };
 
-            cmbMonths.Items.AddRange(new object[]
-            {
-                "1 hora",
-                "1 día",
-                "1 semana",
+            cmbMonths.SetItems(
+                "60 min",
+                "24 h",
+                "7 días",
                 "1 mes",
                 "3 meses",
                 "6 meses",
-                "12 meses"
-            });
+                "1 año");
 
             cmbMonths.SelectedItem = LoadFrequencyLabel();
 
@@ -563,19 +561,11 @@ namespace MaxibackCleaner
                 Margin = new Padding(0, 12, 0, 0)
             };
 
-            var retentionLayout = new FlowLayoutPanel
-            {
-                Dock = DockStyle.Top,
-                AutoSize = true,
-                WrapContents = true,
-                FlowDirection = FlowDirection.LeftToRight,
-                BackColor = cardColor,
-                Margin = new Padding(0, 15, 0, 0)
-            };
+            cmbMonths.SelectionChanged += (_, _) => UpdateRetentionInfo();
+            UpdateRetentionInfo();
 
-            retentionLayout.Controls.Add(cmbMonths);
             retentionCard.Controls.Add(lblFrequencyInfo);
-            retentionCard.Controls.Add(retentionLayout);
+            retentionCard.Controls.Add(cmbMonths);
 
             var actionCard = CreateCard(
                 "ACCIONES",
@@ -739,6 +729,15 @@ namespace MaxibackCleaner
             return button;
         }
 
+        private void UpdateRetentionInfo()
+        {
+            string label = cmbMonths.SelectedItem ?? "3 meses";
+
+            lblFrequencyInfo.Text =
+                $"Se eliminarán los archivos con más de {label} de antigüedad. " +
+                "La limpieza automática usará esta misma frecuencia.";
+        }
+
         private string LoadFrequencyLabel()
         {
             try
@@ -766,7 +765,7 @@ namespace MaxibackCleaner
             return settings.RetentionMonths switch
             {
                 6 => "6 meses",
-                12 => "12 meses",
+                12 => "1 año",
                 1 => "1 mes",
                 _ => "3 meses"
             };
@@ -776,13 +775,13 @@ namespace MaxibackCleaner
         {
             return new Dictionary<string, string>
             {
-                ["1 hora"] = "1hour",
-                ["1 día"] = "1day",
-                ["1 semana"] = "1week",
+                ["60 min"] = "1hour",
+                ["24 h"] = "1day",
+                ["7 días"] = "1week",
                 ["1 mes"] = "1month",
                 ["3 meses"] = "3months",
                 ["6 meses"] = "6months",
-                ["12 meses"] = "12months"
+                ["1 año"] = "12months"
             };
         }
 
@@ -818,11 +817,11 @@ namespace MaxibackCleaner
                 cmbMonths.SelectedItem?.ToString() switch
                 {
                     "6 meses" => 6,
-                    "12 meses" => 12,
+                    "1 año" => 12,
                     "1 mes" => 1,
-                    "1 semana" => 0,
-                    "1 día" => 0,
-                    "1 hora" => 0,
+                    "7 días" => 0,
+                    "24 h" => 0,
+                    "60 min" => 0,
                     _ => 3
                 };
 
@@ -1204,16 +1203,6 @@ namespace MaxibackCleaner
                 return;
             }
 
-            if (!Visible)
-            {
-                using var login = new AdminLoginForm();
-
-                if (login.ShowDialog() != DialogResult.OK)
-                {
-                    return;
-                }
-            }
-
             Show();
             WindowState = FormWindowState.Normal;
             Activate();
@@ -1257,6 +1246,135 @@ namespace MaxibackCleaner
             }
 
             base.OnFormClosing(e);
+        }
+    }
+
+    /// <summary>
+    /// Selector de opciones en formato de botones.
+    /// Reemplaza al ComboBox con el estilo oscuro de la aplicación.
+    /// </summary>
+    [ToolboxItem(false)]
+    [DesignerCategory("Code")]
+    internal sealed class SegmentedSelector : FlowLayoutPanel
+    {
+        private static readonly Color ButtonBorder = Color.FromArgb(52, 60, 76);
+
+        private readonly List<Button> buttons = new();
+        private readonly Color normalBack;
+        private readonly Color selectedBack;
+        private readonly Color hoverBack;
+        private readonly Color normalFore;
+
+        private int selectedIndex = -1;
+
+        public event EventHandler? SelectionChanged;
+
+        public SegmentedSelector(
+            Color normalBack,
+            Color selectedBack,
+            Color normalFore)
+        {
+            this.normalBack = normalBack;
+            this.selectedBack = selectedBack;
+            this.normalFore = normalFore;
+
+            hoverBack = ControlPaint.Light(normalBack, 0.15f);
+
+            FlowDirection = FlowDirection.LeftToRight;
+            WrapContents = true;
+            AutoSize = true;
+            AutoSizeMode = AutoSizeMode.GrowAndShrink;
+        }
+
+        [Browsable(false)]
+        [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+        public int SelectedIndex
+        {
+            get => selectedIndex;
+            set
+            {
+                if (value < 0 || value >= buttons.Count)
+                {
+                    value = -1;
+                }
+
+                if (value == selectedIndex)
+                {
+                    return;
+                }
+
+                selectedIndex = value;
+                ApplyState();
+                SelectionChanged?.Invoke(this, EventArgs.Empty);
+            }
+        }
+
+        [Browsable(false)]
+        [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+        public string? SelectedItem
+        {
+            get => selectedIndex >= 0 ? buttons[selectedIndex].Text : null;
+            set => SelectedIndex = buttons.FindIndex(b => b.Text == value);
+        }
+
+        public void SetItems(params string[] items)
+        {
+            SuspendLayout();
+
+            foreach (Button old in buttons)
+            {
+                Controls.Remove(old);
+                old.Dispose();
+            }
+
+            buttons.Clear();
+            selectedIndex = -1;
+
+            for (int i = 0; i < items.Length; i++)
+            {
+                int index = i;
+
+                var button = new Button
+                {
+                    Text = items[i],
+                    AutoSize = true,
+                    AutoSizeMode = AutoSizeMode.GrowOnly,
+                    MinimumSize = new Size(88, 38),
+                    Padding = new Padding(12, 0, 12, 0),
+                    Margin = new Padding(0, 0, 8, 8),
+                    FlatStyle = FlatStyle.Flat,
+                    Font = new Font("Segoe UI", 9.5F, FontStyle.Bold),
+                    Cursor = Cursors.Hand,
+                    UseVisualStyleBackColor = false
+                };
+
+                button.FlatAppearance.BorderSize = 1;
+                button.Click += (_, _) => SelectedIndex = index;
+
+                buttons.Add(button);
+                Controls.Add(button);
+            }
+
+            ApplyState();
+            ResumeLayout(true);
+        }
+
+        private void ApplyState()
+        {
+            for (int i = 0; i < buttons.Count; i++)
+            {
+                Button button = buttons[i];
+                bool selected = i == selectedIndex;
+
+                button.BackColor = selected ? selectedBack : normalBack;
+                button.ForeColor = selected ? Color.White : normalFore;
+
+                button.FlatAppearance.BorderColor =
+                    selected ? selectedBack : ButtonBorder;
+
+                button.FlatAppearance.MouseOverBackColor =
+                    selected ? selectedBack : hoverBack;
+            }
         }
     }
 }
