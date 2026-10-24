@@ -1,3 +1,4 @@
+
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
@@ -39,7 +40,6 @@ namespace MaxibackCleaner
         private WindowsOptimizationForm optimizationView = null!;
 
         private bool exitRequested;
-        private string currentSection = "cleaning";
 
         private readonly string frequencyFile = Path.Combine(
             Environment.GetFolderPath(
@@ -47,38 +47,20 @@ namespace MaxibackCleaner
             "MaxibackCleaner",
             "frequency.txt");
 
-        private readonly Color backgroundColor =
-            Color.FromArgb(15, 18, 25);
-
-        private readonly Color sidebarColor =
-            Color.FromArgb(20, 24, 33);
-
-        private readonly Color cardColor =
-            Color.FromArgb(27, 32, 43);
-
-        private readonly Color inputColor =
-            Color.FromArgb(36, 42, 55);
-
-        private readonly Color textColor =
-            Color.FromArgb(235, 239, 246);
-
-        private readonly Color mutedColor =
-            Color.FromArgb(153, 164, 181);
-
-        private readonly Color accentColor =
-            Color.FromArgb(63, 132, 245);
-
-        private readonly Color successColor =
-            Color.FromArgb(50, 190, 130);
-
-        private readonly Color dangerColor =
-            Color.FromArgb(220, 80, 90);
+        private readonly Color backgroundColor = Color.FromArgb(15, 18, 25);
+        private readonly Color sidebarColor = Color.FromArgb(20, 24, 33);
+        private readonly Color cardColor = Color.FromArgb(27, 32, 43);
+        private readonly Color inputColor = Color.FromArgb(36, 42, 55);
+        private readonly Color textColor = Color.FromArgb(235, 239, 246);
+        private readonly Color mutedColor = Color.FromArgb(153, 164, 181);
+        private readonly Color accentColor = Color.FromArgb(63, 132, 245);
+        private readonly Color successColor = Color.FromArgb(50, 190, 130);
+        private readonly Color dangerColor = Color.FromArgb(220, 80, 90);
 
         public Form1()
         {
             InitializeComponent();
 
-            // Icono de la ventana, la barra de tareas y la bandeja del sistema.
             Icon = LoadAppIcon();
 
             settings = AppSettings.Load();
@@ -103,18 +85,13 @@ namespace MaxibackCleaner
                     "logo.ico");
 
                 if (File.Exists(path))
-                {
                     return new Icon(path);
-                }
 
-                // Plan B: el icono incrustado en el propio .exe
                 Icon? exeIcon =
                     Icon.ExtractAssociatedIcon(Application.ExecutablePath);
 
                 if (exeIcon != null)
-                {
                     return exeIcon;
-                }
             }
             catch (Exception ex)
             {
@@ -173,7 +150,6 @@ namespace MaxibackCleaner
 
             root.Controls.Add(sidebar, 0, 0);
             root.Controls.Add(contentPanel, 1, 0);
-
             Controls.Add(root);
 
             BuildSidebar();
@@ -185,7 +161,6 @@ namespace MaxibackCleaner
         {
             sidebar.Controls.Clear();
 
-            // LOGO DE LA APLICACIÓN
             var logo = new PictureBox
             {
                 Dock = DockStyle.Top,
@@ -203,11 +178,8 @@ namespace MaxibackCleaner
             {
                 try
                 {
-                    using (Image original = Image.FromFile(logoPath))
-                    {
-                        // Copiar la imagen para no mantener bloqueado el archivo.
-                        logo.Image = new Bitmap(original);
-                    }
+                    using Image original = Image.FromFile(logoPath);
+                    logo.Image = new Bitmap(original);
                 }
                 catch (Exception ex)
                 {
@@ -216,16 +188,12 @@ namespace MaxibackCleaner
                 }
             }
 
-            // NOMBRE DE LA APLICACIÓN
             var brand = new Label
             {
                 Text = "MAXIBACK\nOPTIMIZE",
                 Dock = DockStyle.Top,
                 Height = 65,
-                Font = new Font(
-                    "Segoe UI",
-                    17F,
-                    FontStyle.Bold),
+                Font = new Font("Segoe UI", 17F, FontStyle.Bold),
                 ForeColor = textColor,
                 TextAlign = ContentAlignment.MiddleCenter
             };
@@ -243,10 +211,7 @@ namespace MaxibackCleaner
                 Dock = DockStyle.Top,
                 Height = 38,
                 ForeColor = mutedColor,
-                Font = new Font(
-                    "Segoe UI",
-                    8.5F,
-                    FontStyle.Bold),
+                Font = new Font("Segoe UI", 8.5F, FontStyle.Bold),
                 TextAlign = ContentAlignment.MiddleLeft
             };
 
@@ -263,27 +228,19 @@ namespace MaxibackCleaner
             };
 
             btnCleaningNav = CreateNavButton("   Limpieza");
+            btnOptimizationNav =
+                CreateNavButton("   Optimización de Windows");
+            btnDiagnosticsNav =
+                CreateNavButton("   Diagnóstico del sistema");
 
-            btnOptimizationNav = CreateNavButton(
-                "   Optimización de Windows");
-
-            btnDiagnosticsNav = CreateNavButton(
-                "   Diagnóstico del sistema");
-
-            btnCleaningNav.Click += (_, _) =>
-                ShowSection("cleaning");
-
-            btnOptimizationNav.Click += (_, _) =>
-                ShowSection("optimization");
-
-            btnDiagnosticsNav.Click += (_, _) =>
-                ShowSection("diagnostics");
+            btnCleaningNav.Click += (_, _) => ShowSection("cleaning");
+            btnOptimizationNav.Click += (_, _) => ShowSection("optimization");
+            btnDiagnosticsNav.Click += (_, _) => ShowSection("diagnostics");
 
             nav.Controls.Add(btnCleaningNav);
             nav.Controls.Add(btnOptimizationNav);
             nav.Controls.Add(btnDiagnosticsNav);
 
-            // INFORMACIÓN INFERIOR
             var sidebarFooter = new Label
             {
                 Text = "Limpieza y mantenimiento\nVersión de escritorio",
@@ -294,7 +251,6 @@ namespace MaxibackCleaner
                 TextAlign = ContentAlignment.BottomLeft
             };
 
-            // ENLACE A GITHUB
             var githubLink = new LinkLabel
             {
                 Text = "GitHub: gabmorenoxbx",
@@ -313,13 +269,11 @@ namespace MaxibackCleaner
             {
                 try
                 {
-                    Process.Start(
-                        new ProcessStartInfo
-                        {
-                            FileName =
-                                "https://github.com/gabmorenoxbx",
-                            UseShellExecute = true
-                        });
+                    Process.Start(new ProcessStartInfo
+                    {
+                        FileName = "https://github.com/gabmorenoxbx",
+                        UseShellExecute = true
+                    });
                 }
                 catch (Exception ex)
                 {
@@ -328,7 +282,6 @@ namespace MaxibackCleaner
                 }
             };
 
-            // Agregar cada control una sola vez.
             sidebar.Controls.Add(sidebarFooter);
             sidebar.Controls.Add(githubLink);
             sidebar.Controls.Add(nav);
@@ -350,16 +303,12 @@ namespace MaxibackCleaner
                 TextAlign = ContentAlignment.MiddleLeft,
                 BackColor = sidebarColor,
                 ForeColor = textColor,
-                Font = new Font(
-                    "Segoe UI",
-                    9.2F,
-                    FontStyle.Bold),
+                Font = new Font("Segoe UI", 9.2F, FontStyle.Bold),
                 Cursor = Cursors.Hand,
                 UseVisualStyleBackColor = false
             };
 
             button.FlatAppearance.BorderSize = 0;
-
             button.FlatAppearance.MouseOverBackColor =
                 Color.FromArgb(35, 48, 70);
 
@@ -368,8 +317,6 @@ namespace MaxibackCleaner
 
         private void ShowSection(string section)
         {
-            currentSection = section;
-
             bool showCleaning = section == "cleaning";
             bool showOptimization = section == "optimization";
             bool showDiagnostics = section == "diagnostics";
@@ -378,13 +325,9 @@ namespace MaxibackCleaner
             optimizationView.Visible = !showCleaning;
 
             if (showOptimization)
-            {
                 optimizationView.ShowSection("optimization");
-            }
             else if (showDiagnostics)
-            {
                 optimizationView.ShowSection("diagnostics");
-            }
 
             SetNavButtonState(btnCleaningNav, showCleaning);
             SetNavButtonState(btnOptimizationNav, showOptimization);
@@ -402,17 +345,13 @@ namespace MaxibackCleaner
             }
         }
 
-        private void SetNavButtonState(
-            Button button,
-            bool selected)
+        private void SetNavButtonState(Button button, bool selected)
         {
             button.BackColor = selected
                 ? Color.FromArgb(35, 48, 70)
                 : sidebarColor;
 
-            button.ForeColor = selected
-                ? Color.White
-                : textColor;
+            button.ForeColor = selected ? Color.White : textColor;
         }
 
         private void BuildMainContent()
@@ -443,10 +382,7 @@ namespace MaxibackCleaner
                 new ColumnStyle(SizeType.Percent, 100));
 
             for (int i = 0; i < 4; i++)
-            {
-                main.RowStyles.Add(
-                    new RowStyle(SizeType.AutoSize));
-            }
+                main.RowStyles.Add(new RowStyle(SizeType.AutoSize));
 
             var header = new Panel
             {
@@ -456,29 +392,23 @@ namespace MaxibackCleaner
                 Margin = new Padding(0, 0, 0, 18)
             };
 
-            var title = new Label
+            header.Controls.Add(new Label
             {
                 Text = "Limpieza",
                 Location = new Point(0, 0),
                 AutoSize = true,
-                Font = new Font(
-                    "Segoe UI",
-                    23F,
-                    FontStyle.Bold),
+                Font = new Font("Segoe UI", 23F, FontStyle.Bold),
                 ForeColor = textColor
-            };
+            });
 
-            var subtitle = new Label
+            header.Controls.Add(new Label
             {
                 Text = "Administrá la limpieza automática de archivos y temporales.",
                 Location = new Point(2, 43),
                 AutoSize = true,
                 Font = new Font("Segoe UI", 9.5F),
                 ForeColor = mutedColor
-            };
-
-            header.Controls.Add(title);
-            header.Controls.Add(subtitle);
+            });
 
             var folderCard = CreateCard(
                 "CARPETA A LIMPIAR",
@@ -523,7 +453,8 @@ namespace MaxibackCleaner
 
             var retentionCard = CreateCard(
                 "ANTIGÜEDAD DE LOS ARCHIVOS",
-                "Se eliminarán los archivos y carpetas que superen el período elegido.");
+                "Esta antigüedad se aplica a la limpieza automática. " +
+                "Limpiar ahora vacía inmediatamente toda la carpeta seleccionada.");
 
             cmbMonths = new SegmentedSelector(
                 inputColor,
@@ -547,13 +478,11 @@ namespace MaxibackCleaner
             cmbMonths.SelectedItem = LoadFrequencyLabel();
 
             if (cmbMonths.SelectedIndex < 0)
-            {
                 cmbMonths.SelectedIndex = 4;
-            }
 
             lblFrequencyInfo = new Label
             {
-                Text = "La frecuencia elegida se utiliza para configurar la limpieza automática.",
+                Text = "",
                 Dock = DockStyle.Top,
                 AutoSize = true,
                 ForeColor = mutedColor,
@@ -569,7 +498,7 @@ namespace MaxibackCleaner
 
             var actionCard = CreateCard(
                 "ACCIONES",
-                "Guardá la configuración o ejecutá una limpieza manual.");
+                "Guardá la configuración automática o ejecutá una limpieza manual.");
 
             var actionLayout = new FlowLayoutPanel
             {
@@ -581,26 +510,17 @@ namespace MaxibackCleaner
                 Margin = new Padding(0, 15, 0, 0)
             };
 
-            btnSave = CreateButton(
-                "Guardar configuración",
-                accentColor);
-
+            btnSave = CreateButton("Guardar configuración", accentColor);
             btnSave.Width = 190;
             btnSave.Height = 42;
             btnSave.Click += BtnSave_Click;
 
-            btnClean = CreateButton(
-                "Limpiar ahora",
-                successColor);
-
+            btnClean = CreateButton("Limpiar ahora", successColor);
             btnClean.Width = 150;
             btnClean.Height = 42;
             btnClean.Click += BtnClean_Click;
 
-            btnTemp = CreateButton(
-                "Limpiar temporales",
-                inputColor);
-
+            btnTemp = CreateButton("Limpiar temporales", inputColor);
             btnTemp.Width = 180;
             btnTemp.Height = 42;
             btnTemp.ForeColor = textColor;
@@ -658,9 +578,7 @@ namespace MaxibackCleaner
             optimizationView.Visible = false;
         }
 
-        private Panel CreateCard(
-            string heading,
-            string description)
+        private Panel CreateCard(string heading, string description)
         {
             var card = new Panel
             {
@@ -677,10 +595,7 @@ namespace MaxibackCleaner
                 Dock = DockStyle.Top,
                 AutoSize = true,
                 ForeColor = textColor,
-                Font = new Font(
-                    "Segoe UI",
-                    10F,
-                    FontStyle.Bold),
+                Font = new Font("Segoe UI", 10F, FontStyle.Bold),
                 Margin = new Padding(0, 0, 0, 8)
             };
 
@@ -701,9 +616,7 @@ namespace MaxibackCleaner
             return card;
         }
 
-        private Button CreateButton(
-            string text,
-            Color color)
+        private Button CreateButton(string text, Color color)
         {
             var button = new Button
             {
@@ -711,10 +624,7 @@ namespace MaxibackCleaner
                 BackColor = color,
                 ForeColor = Color.White,
                 FlatStyle = FlatStyle.Flat,
-                Font = new Font(
-                    "Segoe UI",
-                    9.5F,
-                    FontStyle.Bold),
+                Font = new Font("Segoe UI", 9.5F, FontStyle.Bold),
                 Cursor = Cursors.Hand,
                 Padding = new Padding(10, 5, 10, 5),
                 Margin = new Padding(0, 0, 10, 0),
@@ -722,7 +632,6 @@ namespace MaxibackCleaner
             };
 
             button.FlatAppearance.BorderSize = 0;
-
             button.FlatAppearance.MouseOverBackColor =
                 ControlPaint.Light(color, 0.12f);
 
@@ -734,8 +643,8 @@ namespace MaxibackCleaner
             string label = cmbMonths.SelectedItem ?? "3 meses";
 
             lblFrequencyInfo.Text =
-                $"Se eliminarán los archivos con más de {label} de antigüedad. " +
-                "La limpieza automática usará esta misma frecuencia.";
+                $"Limpieza automática: archivos con más de {label}. " +
+                "Limpiar ahora vacía toda la carpeta inmediatamente.";
         }
 
         private string LoadFrequencyLabel()
@@ -749,17 +658,14 @@ namespace MaxibackCleaner
                     foreach (var pair in GetFrequencyMap())
                     {
                         if (pair.Value == key)
-                        {
                             return pair.Key;
-                        }
                     }
                 }
             }
             catch (Exception ex)
             {
                 logger.Write(
-                    "No se pudo leer la frecuencia guardada: " +
-                    ex.Message);
+                    "No se pudo leer la frecuencia guardada: " + ex.Message);
             }
 
             return settings.RetentionMonths switch
@@ -787,9 +693,7 @@ namespace MaxibackCleaner
 
         private string GetSelectedFrequency()
         {
-            string label =
-                cmbMonths.SelectedItem?.ToString() ?? "3 meses";
-
+            string label = cmbMonths.SelectedItem ?? "3 meses";
             var map = GetFrequencyMap();
 
             return map.TryGetValue(label, out string? value)
@@ -799,31 +703,28 @@ namespace MaxibackCleaner
 
         private void SaveConfiguration()
         {
-            if (string.IsNullOrWhiteSpace(txtFolder.Text))
-            {
+            string folder = txtFolder.Text.Trim();
+
+            if (string.IsNullOrWhiteSpace(folder))
                 throw new InvalidOperationException(
                     "Seleccioná una carpeta para limpiar.");
-            }
 
-            if (!Directory.Exists(txtFolder.Text))
-            {
+            if (!Directory.Exists(folder))
                 throw new DirectoryNotFoundException(
-                    "La carpeta seleccionada no existe.");
-            }
+                    "La carpeta seleccionada no existe: " + folder);
 
-            settings.FolderPath = txtFolder.Text.Trim();
+            settings.FolderPath = Path.GetFullPath(folder);
 
-            settings.RetentionMonths =
-                cmbMonths.SelectedItem?.ToString() switch
-                {
-                    "6 meses" => 6,
-                    "1 año" => 12,
-                    "1 mes" => 1,
-                    "7 días" => 0,
-                    "24 h" => 0,
-                    "60 min" => 0,
-                    _ => 3
-                };
+            settings.RetentionMonths = cmbMonths.SelectedItem switch
+            {
+                "6 meses" => 6,
+                "1 año" => 12,
+                "1 mes" => 1,
+                "7 días" => 0,
+                "24 h" => 0,
+                "60 min" => 0,
+                _ => 3
+            };
 
             settings.Save();
 
@@ -835,31 +736,22 @@ namespace MaxibackCleaner
                 GetSelectedFrequency());
         }
 
-        private void BtnBrowse_Click(
-            object? sender,
-            EventArgs e)
+        private void BtnBrowse_Click(object? sender, EventArgs e)
         {
             using var dialog = new FolderBrowserDialog
             {
-                Description =
-                    "Seleccioná la carpeta que querés limpiar",
+                Description = "Seleccioná la carpeta que querés limpiar",
                 ShowNewFolderButton = false
             };
 
             if (Directory.Exists(txtFolder.Text))
-            {
                 dialog.SelectedPath = txtFolder.Text;
-            }
 
             if (dialog.ShowDialog(this) == DialogResult.OK)
-            {
                 txtFolder.Text = dialog.SelectedPath;
-            }
         }
 
-        private void BtnSave_Click(
-            object? sender,
-            EventArgs e)
+        private void BtnSave_Click(object? sender, EventArgs e)
         {
             try
             {
@@ -872,15 +764,22 @@ namespace MaxibackCleaner
                 lblStatus.ForeColor = successColor;
 
                 logger.Write(
-                    "Configuración guardada. Frecuencia: " +
-                    GetSelectedFrequency());
+                    "Configuración guardada. Ruta: " + settings.FolderPath +
+                    ". Frecuencia: " + GetSelectedFrequency());
+
+                MessageBox.Show(
+                    this,
+                    "La configuración se guardó correctamente.",
+                    "Configuración guardada",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Information);
             }
             catch (Exception ex)
             {
-                lblStatus.Text =
-                    "No se pudo guardar la configuración.";
-
+                lblStatus.Text = "No se pudo guardar la configuración.";
                 lblStatus.ForeColor = dangerColor;
+
+                logger.Write("Error al guardar configuración: " + ex);
 
                 MessageBox.Show(
                     this,
@@ -888,65 +787,88 @@ namespace MaxibackCleaner
                     "Error al guardar",
                     MessageBoxButtons.OK,
                     MessageBoxIcon.Error);
-
-                logger.Write(
-                    "Error al guardar configuración: " + ex);
             }
         }
 
-        private void BtnClean_Click(
-            object? sender,
-            EventArgs e)
+
+        // LIMPIEZA MANUAL COMPLETA.
+        // Elimina archivos y subcarpetas sin importar su antigüedad.
+        // Conserva la carpeta principal seleccionada.
+
+        private void BtnClean_Click(object? sender, EventArgs e)
         {
+            string folder = txtFolder.Text.Trim();
+
+            if (string.IsNullOrWhiteSpace(folder))
+            {
+                MessageBox.Show(
+                    "Seleccioná una carpeta primero.",
+                    "Maxiback Optimize",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Warning);
+                return;
+            }
+
+            if (!Directory.Exists(folder))
+            {
+                MessageBox.Show(
+                    "La carpeta seleccionada no existe.",
+                    "Maxiback Optimize",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Warning);
+                return;
+            }
+
+            DialogResult confirmation = MessageBox.Show(
+                $"Se eliminará todo el contenido de esta carpeta:\n\n{folder}\n\n" +
+                "Esta acción no se puede deshacer. La carpeta principal se conservará.\n\n¿Querés continuar?",
+                "Confirmar limpieza completa",
+                MessageBoxButtons.YesNo,
+                MessageBoxIcon.Warning);
+
+            if (confirmation != DialogResult.Yes)
+                return;
+
             try
             {
-                SaveConfiguration();
+                Cursor = Cursors.WaitCursor;
+                btnClean.Enabled = false;
 
-                string frequency = GetSelectedFrequency();
+                var result = cleaner.CleanAllContents(folder);
 
-                var result = MessageBox.Show(
-                    this,
-                    $"Se eliminarán los archivos y carpetas con una antigüedad superior a {cmbMonths.SelectedItem} en:\n\n{settings.FolderPath}\n\n¿Querés continuar?",
-                    "Confirmar limpieza",
-                    MessageBoxButtons.YesNo,
-                    MessageBoxIcon.Warning);
+                string message =
+                    $"Limpieza finalizada.\n\n" +
+                    $"Elementos eliminados: {result.Deleted}\n" +
+                    $"Elementos omitidos o con error: {result.Skipped}";
 
-                if (result != DialogResult.Yes)
-                {
-                    return;
-                }
+                lblStatus.Text = message.Replace("\n\n", " ");
 
-                cleaner.CleanOldFiles(
-                    settings.FolderPath,
-                    frequency);
-
-                lblStatus.Text =
-                    "La limpieza finalizó. Revisá el registro para más detalles.";
-
-                lblStatus.ForeColor = successColor;
+                MessageBox.Show(
+                    message,
+                    "Resultado de limpieza",
+                    MessageBoxButtons.OK,
+                    result.Skipped > 0
+                        ? MessageBoxIcon.Warning
+                        : MessageBoxIcon.Information);
             }
             catch (Exception ex)
             {
-                lblStatus.Text =
-                    "Ocurrió un error durante la limpieza.";
-
-                lblStatus.ForeColor = dangerColor;
+                logger.Write("Error en limpieza manual: " + ex);
 
                 MessageBox.Show(
-                    this,
-                    ex.Message,
-                    "Error de limpieza",
+                    ex.ToString(),
+                    "Error durante la limpieza",
                     MessageBoxButtons.OK,
                     MessageBoxIcon.Error);
-
-                logger.Write(
-                    "Error en limpieza manual: " + ex);
+            }
+            finally
+            {
+                Cursor = Cursors.Default;
+                btnClean.Enabled = true;
             }
         }
 
-        private void BtnTemp_Click(
-            object? sender,
-            EventArgs e)
+        private void BtnTemp_Click(object? sender, EventArgs e)
         {
             RunTemporaryCleanup(true);
         }
@@ -955,27 +877,41 @@ namespace MaxibackCleaner
         {
             if (showConfirmation)
             {
-                var answer = MessageBox.Show(
+                DialogResult answer = MessageBox.Show(
                     this,
-                    "Se intentará eliminar archivos temporales de Windows y del usuario. Algunos archivos en uso no podrán eliminarse.\n\n¿Continuar?",
+                    "Se intentará eliminar archivos temporales de Windows " +
+                    "y del usuario. Algunos archivos en uso no podrán eliminarse.\n\n" +
+                    "¿Continuar?",
                     "Limpiar temporales",
                     MessageBoxButtons.YesNo,
                     MessageBoxIcon.Warning);
 
                 if (answer != DialogResult.Yes)
-                {
                     return;
-                }
             }
 
             try
             {
-                cleaner.CleanTemporaryFiles();
+                var result = cleaner.CleanTemporaryFiles();
 
                 lblStatus.Text =
-                    "Se ejecutó la limpieza de temporales. Revisá el registro para ver el detalle.";
+                    $"Temporales eliminados: {result.Deleted}. " +
+                    $"Omitidos: {result.Skipped}.";
 
-                lblStatus.ForeColor = successColor;
+                lblStatus.ForeColor =
+                    result.Skipped > 0 ? dangerColor : successColor;
+
+                if (showConfirmation)
+                {
+                    MessageBox.Show(
+                        this,
+                        $"Limpieza de temporales finalizada.\n\n" +
+                        $"Eliminados: {result.Deleted}\n" +
+                        $"Omitidos: {result.Skipped}",
+                        "Resultado",
+                        MessageBoxButtons.OK,
+                        MessageBoxIcon.Information);
+                }
             }
             catch (Exception ex)
             {
@@ -983,9 +919,7 @@ namespace MaxibackCleaner
                     "No se pudo completar la limpieza de temporales.";
 
                 lblStatus.ForeColor = dangerColor;
-
-                logger.Write(
-                    "Error al limpiar temporales: " + ex);
+                logger.Write("Error al limpiar temporales: " + ex);
 
                 if (showConfirmation)
                 {
@@ -1040,9 +974,7 @@ namespace MaxibackCleaner
                 exitRequested = true;
 
                 if (trayIcon != null)
-                {
                     trayIcon.Visible = false;
-                }
 
                 Close();
             });
@@ -1055,8 +987,7 @@ namespace MaxibackCleaner
                 Visible = true
             };
 
-            trayIcon.DoubleClick +=
-                (_, _) => ShowWithAdminLogin();
+            trayIcon.DoubleClick += (_, _) => ShowWithAdminLogin();
         }
 
         private void ConfigureTimer()
@@ -1076,33 +1007,28 @@ namespace MaxibackCleaner
             {
                 if (string.IsNullOrWhiteSpace(settings.FolderPath) ||
                     !Directory.Exists(settings.FolderPath))
-                {
                     return;
-                }
 
                 if (DateTime.TryParse(
-                        settings.LastAlertDate,
-                        out DateTime lastAlertDate) &&
+                    settings.LastAlertDate,
+                    out DateTime lastAlertDate) &&
                     lastAlertDate.Date == DateTime.Today)
-                {
                     return;
-                }
 
                 string frequency = File.Exists(frequencyFile)
                     ? File.ReadAllText(frequencyFile).Trim()
                     : GetSelectedFrequency();
 
                 if (!HasFilesReachingLimit(
-                        settings.FolderPath,
-                        GetCutoff(frequency)))
-                {
+                    settings.FolderPath,
+                    GetCutoff(frequency)))
                     return;
-                }
 
                 trayIcon?.ShowBalloonTip(
                     5000,
                     "Maxiback Optimize",
-                    "Hay archivos que alcanzaron la antigüedad configurada. Podés ejecutar la limpieza.",
+                    "Hay archivos que alcanzaron la antigüedad configurada. " +
+                    "Podés ejecutar la limpieza.",
                     ToolTipIcon.Info);
 
                 settings.LastAlertDate =
@@ -1113,8 +1039,7 @@ namespace MaxibackCleaner
             catch (Exception ex)
             {
                 logger.Write(
-                    "Error al revisar próxima limpieza: " +
-                    ex.Message);
+                    "Error al revisar próxima limpieza: " + ex.Message);
             }
         }
 
@@ -1127,25 +1052,18 @@ namespace MaxibackCleaner
                 foreach (string file in Directory.GetFiles(folder))
                 {
                     if (File.GetLastWriteTime(file) <= cutoff)
-                    {
                         return true;
-                    }
                 }
 
                 foreach (string directory in Directory.GetDirectories(folder))
                 {
                     var info = new DirectoryInfo(directory);
 
-                    if ((info.Attributes &
-                         FileAttributes.ReparsePoint) != 0)
-                    {
+                    if ((info.Attributes & FileAttributes.ReparsePoint) != 0)
                         continue;
-                    }
 
                     if (HasFilesReachingLimit(directory, cutoff))
-                    {
                         return true;
-                    }
                 }
             }
             catch (UnauthorizedAccessException)
@@ -1158,6 +1076,7 @@ namespace MaxibackCleaner
             return false;
         }
 
+        // Limpieza por antigüedad desde la bandeja del sistema.
         private void RunAutomaticCleanup()
         {
             try
@@ -1178,20 +1097,25 @@ namespace MaxibackCleaner
                     ? File.ReadAllText(frequencyFile).Trim()
                     : "3months";
 
-                cleaner.CleanOldFiles(
+                int deleted = cleaner.CleanOldFiles(
                     settings.FolderPath,
                     frequency);
 
                 trayIcon?.ShowBalloonTip(
                     4000,
                     "Maxiback Optimize",
-                    "La limpieza automática finalizó.",
+                    $"Limpieza por antigüedad finalizada. Eliminados: {deleted}.",
                     ToolTipIcon.Info);
             }
             catch (Exception ex)
             {
-                logger.Write(
-                    "Error en limpieza automática: " + ex);
+                logger.Write("Error en limpieza automática: " + ex);
+
+                trayIcon?.ShowBalloonTip(
+                    4000,
+                    "Maxiback Optimize",
+                    "No se pudo completar la limpieza. Revisá el registro.",
+                    ToolTipIcon.Error);
             }
         }
 
@@ -1213,9 +1137,7 @@ namespace MaxibackCleaner
             base.OnResize(e);
 
             if (WindowState == FormWindowState.Minimized)
-            {
                 Hide();
-            }
         }
 
         protected override void OnFormClosing(
@@ -1249,15 +1171,12 @@ namespace MaxibackCleaner
         }
     }
 
-    /// <summary>
-    /// Selector de opciones en formato de botones.
-    /// Reemplaza al ComboBox con el estilo oscuro de la aplicación.
-    /// </summary>
     [ToolboxItem(false)]
     [DesignerCategory("Code")]
     internal sealed class SegmentedSelector : FlowLayoutPanel
     {
-        private static readonly Color ButtonBorder = Color.FromArgb(52, 60, 76);
+        private static readonly Color ButtonBorder =
+            Color.FromArgb(52, 60, 76);
 
         private readonly List<Button> buttons = new();
         private readonly Color normalBack;
@@ -1287,21 +1206,18 @@ namespace MaxibackCleaner
         }
 
         [Browsable(false)]
-        [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+        [DesignerSerializationVisibility(
+            DesignerSerializationVisibility.Hidden)]
         public int SelectedIndex
         {
             get => selectedIndex;
             set
             {
                 if (value < 0 || value >= buttons.Count)
-                {
                     value = -1;
-                }
 
                 if (value == selectedIndex)
-                {
                     return;
-                }
 
                 selectedIndex = value;
                 ApplyState();
@@ -1310,11 +1226,16 @@ namespace MaxibackCleaner
         }
 
         [Browsable(false)]
-        [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+        [DesignerSerializationVisibility(
+            DesignerSerializationVisibility.Hidden)]
         public string? SelectedItem
         {
-            get => selectedIndex >= 0 ? buttons[selectedIndex].Text : null;
-            set => SelectedIndex = buttons.FindIndex(b => b.Text == value);
+            get => selectedIndex >= 0
+                ? buttons[selectedIndex].Text
+                : null;
+
+            set => SelectedIndex =
+                buttons.FindIndex(b => b.Text == value);
         }
 
         public void SetItems(params string[] items)
@@ -1343,7 +1264,10 @@ namespace MaxibackCleaner
                     Padding = new Padding(12, 0, 12, 0),
                     Margin = new Padding(0, 0, 8, 8),
                     FlatStyle = FlatStyle.Flat,
-                    Font = new Font("Segoe UI", 9.5F, FontStyle.Bold),
+                    Font = new Font(
+                        "Segoe UI",
+                        9.5F,
+                        FontStyle.Bold),
                     Cursor = Cursors.Hand,
                     UseVisualStyleBackColor = false
                 };
@@ -1366,14 +1290,21 @@ namespace MaxibackCleaner
                 Button button = buttons[i];
                 bool selected = i == selectedIndex;
 
-                button.BackColor = selected ? selectedBack : normalBack;
-                button.ForeColor = selected ? Color.White : normalFore;
+                button.BackColor = selected
+                    ? selectedBack
+                    : normalBack;
 
-                button.FlatAppearance.BorderColor =
-                    selected ? selectedBack : ButtonBorder;
+                button.ForeColor = selected
+                    ? Color.White
+                    : normalFore;
 
-                button.FlatAppearance.MouseOverBackColor =
-                    selected ? selectedBack : hoverBack;
+                button.FlatAppearance.BorderColor = selected
+                    ? selectedBack
+                    : ButtonBorder;
+
+                button.FlatAppearance.MouseOverBackColor = selected
+                    ? selectedBack
+                    : hoverBack;
             }
         }
     }
