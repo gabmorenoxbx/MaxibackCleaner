@@ -33,10 +33,12 @@ namespace MaxibackCleaner
         private Button btnCleaningNav = null!;
         private Button btnOptimizationNav = null!;
         private Button btnDiagnosticsNav = null!;
+        private Button btnUsbBootableNav = null!;
 
         private Panel sidebar = null!;
         private Panel contentPanel = null!;
         private Panel cleaningView = null!;
+        private Panel usbBootableView = null!;
         private WindowsOptimizationForm optimizationView = null!;
 
         private bool exitRequested;
@@ -218,7 +220,7 @@ namespace MaxibackCleaner
             var nav = new FlowLayoutPanel
             {
                 Dock = DockStyle.Top,
-                Height = 174,
+                Height = 226,
                 FlowDirection = FlowDirection.TopDown,
                 WrapContents = false,
                 AutoScroll = false,
@@ -232,14 +234,18 @@ namespace MaxibackCleaner
                 CreateNavButton("   Optimización de Windows");
             btnDiagnosticsNav =
                 CreateNavButton("   Diagnóstico del sistema");
+            btnUsbBootableNav =
+                CreateNavButton("   USB Booteable");
 
             btnCleaningNav.Click += (_, _) => ShowSection("cleaning");
             btnOptimizationNav.Click += (_, _) => ShowSection("optimization");
             btnDiagnosticsNav.Click += (_, _) => ShowSection("diagnostics");
+            btnUsbBootableNav.Click += (_, _) => ShowSection("usb");
 
             nav.Controls.Add(btnCleaningNav);
             nav.Controls.Add(btnOptimizationNav);
             nav.Controls.Add(btnDiagnosticsNav);
+            nav.Controls.Add(btnUsbBootableNav);
 
             var sidebarFooter = new Label
             {
@@ -320,9 +326,11 @@ namespace MaxibackCleaner
             bool showCleaning = section == "cleaning";
             bool showOptimization = section == "optimization";
             bool showDiagnostics = section == "diagnostics";
+            bool showUsb = section == "usb";
 
             cleaningView.Visible = showCleaning;
-            optimizationView.Visible = !showCleaning;
+            optimizationView.Visible = showOptimization || showDiagnostics;
+            usbBootableView.Visible = showUsb;
 
             if (showOptimization)
                 optimizationView.ShowSection("optimization");
@@ -332,6 +340,7 @@ namespace MaxibackCleaner
             SetNavButtonState(btnCleaningNav, showCleaning);
             SetNavButtonState(btnOptimizationNav, showOptimization);
             SetNavButtonState(btnDiagnosticsNav, showDiagnostics);
+            SetNavButtonState(btnUsbBootableNav, showUsb);
 
             if (showCleaning)
             {
@@ -339,9 +348,15 @@ namespace MaxibackCleaner
                 contentPanel.Controls.SetChildIndex(cleaningView, 0);
                 txtFolder.Focus();
             }
+            else if (showUsb)
+            {
+                usbBootableView.BringToFront();
+                contentPanel.Controls.SetChildIndex(usbBootableView, 0);
+            }
             else
             {
                 optimizationView.BringToFront();
+                contentPanel.Controls.SetChildIndex(optimizationView, 0);
             }
         }
 
@@ -576,6 +591,351 @@ namespace MaxibackCleaner
             contentPanel.Controls.Add(optimizationView);
             optimizationView.Show();
             optimizationView.Visible = false;
+
+            usbBootableView = BuildUsbBootableView();
+            contentPanel.Controls.Add(usbBootableView);
+            usbBootableView.Visible = false;
+        }
+
+        private Panel BuildUsbBootableView()
+        {
+            var view = new Panel
+            {
+                Dock = DockStyle.Fill,
+                BackColor = backgroundColor,
+                Padding = new Padding(30, 26, 30, 20),
+                AutoScroll = true
+            };
+
+            var main = new TableLayoutPanel
+            {
+                Dock = DockStyle.Top,
+                AutoSize = true,
+                AutoSizeMode = AutoSizeMode.GrowAndShrink,
+                ColumnCount = 1,
+                RowCount = 4,
+                BackColor = backgroundColor,
+                Margin = Padding.Empty,
+                Padding = Padding.Empty
+            };
+            main.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+            for (int i = 0; i < 4; i++)
+                main.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+
+            var header = new Panel
+            {
+                Dock = DockStyle.Top,
+                Height = 78,
+                BackColor = backgroundColor,
+                Margin = new Padding(0, 0, 0, 18)
+            };
+            header.Controls.Add(new Label
+            {
+                Text = "USB Booteable",
+                Location = new Point(0, 0),
+                AutoSize = true,
+                Font = new Font("Segoe UI", 23F, FontStyle.Bold),
+                ForeColor = textColor
+            });
+            header.Controls.Add(new Label
+            {
+                Text = "Prepará una unidad USB de arranque a partir de una imagen ISO.",
+                Location = new Point(2, 43),
+                AutoSize = true,
+                Font = new Font("Segoe UI", 9.5F),
+                ForeColor = mutedColor
+            });
+
+            var deviceCard = CreateCard(
+                "DISPOSITIVO USB",
+                "Seleccioná cuidadosamente la unidad. El proceso real de creación todavía no está habilitado.");
+
+            var deviceLayout = new TableLayoutPanel
+            {
+                Dock = DockStyle.Top,
+                AutoSize = true,
+                ColumnCount = 2,
+                RowCount = 2,
+                BackColor = cardColor,
+                Margin = new Padding(0, 15, 0, 0)
+            };
+            deviceLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+            deviceLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 130));
+
+            var cmbUsbDevice = new ComboBox
+            {
+                Name = "cmbUsbDevice",
+                Dock = DockStyle.Top,
+                DropDownStyle = ComboBoxStyle.DropDownList,
+                BackColor = inputColor,
+                ForeColor = textColor,
+                FlatStyle = FlatStyle.Flat,
+                Font = new Font("Segoe UI", 10F),
+                Margin = new Padding(0, 0, 10, 8)
+            };
+            cmbUsbDevice.Items.Add("Presioná Actualizar para buscar unidades USB");
+            cmbUsbDevice.SelectedIndex = 0;
+
+            var btnRefreshUsb = CreateButton("Actualizar", inputColor);
+            btnRefreshUsb.ForeColor = textColor;
+            btnRefreshUsb.Dock = DockStyle.Top;
+            btnRefreshUsb.Height = 34;
+            btnRefreshUsb.Click += (_, _) =>
+            {
+                cmbUsbDevice.Items.Clear();
+                try
+                {
+                    foreach (DriveInfo drive in DriveInfo.GetDrives())
+                    {
+                        try
+                        {
+                            if (drive.IsReady && drive.DriveType == DriveType.Removable)
+                            {
+                                string label = string.IsNullOrWhiteSpace(drive.VolumeLabel)
+                                    ? "Sin etiqueta"
+                                    : drive.VolumeLabel;
+                                cmbUsbDevice.Items.Add(
+                                    $"{drive.Name}  |  {label}  |  {drive.TotalSize / (1024 * 1024 * 1024.0):0.0} GB");
+                            }
+                        }
+                        catch (IOException) { }
+                        catch (UnauthorizedAccessException) { }
+                    }
+
+                    if (cmbUsbDevice.Items.Count == 0)
+                        cmbUsbDevice.Items.Add("No se detectaron unidades extraíbles");
+
+                    cmbUsbDevice.SelectedIndex = 0;
+                }
+                catch (Exception ex)
+                {
+                    logger.Write("Error al buscar unidades USB: " + ex);
+                    MessageBox.Show(this, ex.Message, "Error al buscar USB",
+                        MessageBoxButtons.OK, MessageBoxIcon.Error);
+                }
+            };
+
+            var lblUsbWarning = new Label
+            {
+                Text = "Advertencia: crear un USB booteable puede borrar todos los datos de la unidad seleccionada.",
+                Dock = DockStyle.Top,
+                AutoSize = true,
+                MaximumSize = new Size(760, 0),
+                ForeColor = Color.FromArgb(255, 190, 95),
+                Font = new Font("Segoe UI", 9F),
+                Margin = new Padding(0, 8, 0, 0)
+            };
+            deviceLayout.Controls.Add(cmbUsbDevice, 0, 0);
+            deviceLayout.Controls.Add(btnRefreshUsb, 1, 0);
+            deviceLayout.Controls.Add(lblUsbWarning, 0, 1);
+            deviceLayout.SetColumnSpan(lblUsbWarning, 2);
+            deviceCard.Controls.Add(deviceLayout);
+
+            var isoCard = CreateCard(
+                "IMAGEN ISO",
+                "Elegí el archivo ISO del sistema operativo que querés instalar.");
+
+            var isoLayout = new TableLayoutPanel
+            {
+                Dock = DockStyle.Top,
+                AutoSize = true,
+                ColumnCount = 2,
+                RowCount = 1,
+                BackColor = cardColor,
+                Margin = new Padding(0, 15, 0, 0)
+            };
+            isoLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+            isoLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 130));
+
+            var txtIsoPath = new TextBox
+            {
+                Name = "txtIsoPath",
+                Dock = DockStyle.Top,
+                ReadOnly = true,
+                BackColor = inputColor,
+                ForeColor = textColor,
+                BorderStyle = BorderStyle.FixedSingle,
+                Font = new Font("Segoe UI", 10F),
+                Margin = new Padding(0, 0, 10, 0),
+                PlaceholderText = "Seleccioná un archivo .iso..."
+            };
+            var btnBrowseIso = CreateButton("Elegir ISO", accentColor);
+            btnBrowseIso.Dock = DockStyle.Top;
+            btnBrowseIso.Height = 36;
+            btnBrowseIso.Click += (_, _) =>
+            {
+                using var dialog = new OpenFileDialog
+                {
+                    Title = "Seleccionar imagen ISO",
+                    Filter = "Imágenes ISO (*.iso)|*.iso|Todos los archivos (*.*)|*.*",
+                    CheckFileExists = true,
+                    Multiselect = false
+                };
+                if (dialog.ShowDialog(this) == DialogResult.OK)
+                    txtIsoPath.Text = dialog.FileName;
+            };
+            isoLayout.Controls.Add(txtIsoPath, 0, 0);
+            isoLayout.Controls.Add(btnBrowseIso, 1, 0);
+            isoCard.Controls.Add(isoLayout);
+
+            var optionsCard = CreateCard(
+                "CONFIGURACIÓN DE ARRANQUE",
+                "Los valores se muestran como opciones de configuración; todavía no modifican la unidad USB.");
+
+            var options = new TableLayoutPanel
+            {
+                Dock = DockStyle.Top,
+                AutoSize = true,
+                ColumnCount = 2,
+                RowCount = 4,
+                BackColor = cardColor,
+                Margin = new Padding(0, 15, 0, 0)
+            };
+            options.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
+            options.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
+
+            ComboBox MakeCombo(string name, params string[] items)
+            {
+                var combo = new ComboBox
+                {
+                    Name = name,
+                    Dock = DockStyle.Top,
+                    DropDownStyle = ComboBoxStyle.DropDownList,
+                    BackColor = inputColor,
+                    ForeColor = textColor,
+                    FlatStyle = FlatStyle.Flat,
+                    Font = new Font("Segoe UI", 9.5F),
+                    Margin = new Padding(0, 4, 12, 12)
+                };
+                combo.Items.AddRange(items);
+                if (combo.Items.Count > 0) combo.SelectedIndex = 0;
+                return combo;
+            }
+
+            void AddOption(string labelText, Control control, int column, int row)
+            {
+                var wrapper = new Panel
+                {
+                    Dock = DockStyle.Fill,
+                    AutoSize = true,
+                    BackColor = cardColor,
+                    Padding = new Padding(0, 0, 12, 0),
+                    Margin = Padding.Empty
+                };
+                wrapper.Controls.Add(control);
+                wrapper.Controls.Add(new Label
+                {
+                    Text = labelText,
+                    Dock = DockStyle.Top,
+                    AutoSize = true,
+                    ForeColor = mutedColor,
+                    Font = new Font("Segoe UI", 9F),
+                    Margin = new Padding(0, 0, 0, 2)
+                });
+                options.Controls.Add(wrapper, column, row);
+            }
+
+            AddOption("Esquema de partición", MakeCombo("cmbPartition", "GPT", "MBR"), 0, 0);
+            AddOption("Sistema de destino", MakeCombo("cmbTarget", "UEFI (no CSM)", "BIOS o UEFI-CSM"), 1, 0);
+            AddOption("Sistema de archivos", MakeCombo("cmbFileSystem", "FAT32", "NTFS", "exFAT"), 0, 1);
+            AddOption("Tamaño de clúster", MakeCombo("cmbClusterSize", "Predeterminado", "512 bytes", "1 KB", "2 KB", "4 KB", "8 KB", "16 KB", "32 KB", "64 KB"), 1, 1);
+            AddOption("Etiqueta del volumen", new TextBox
+            {
+                Name = "txtVolumeLabel",
+                Text = "MAXIBACK_USB",
+                Dock = DockStyle.Top,
+                BackColor = inputColor,
+                ForeColor = textColor,
+                BorderStyle = BorderStyle.FixedSingle,
+                Font = new Font("Segoe UI", 10F),
+                Margin = new Padding(0, 4, 12, 12)
+            }, 0, 2);
+
+            var lblModeNote = new Label
+            {
+                Text = "Compatibilidad entre ISO, FAT32/NTFS y UEFI/BIOS: se validará cuando se implemente el motor de creación.",
+                Dock = DockStyle.Fill,
+                ForeColor = mutedColor,
+                Font = new Font("Segoe UI", 8.5F),
+                AutoSize = true,
+                MaximumSize = new Size(760, 0),
+                Margin = new Padding(0, 5, 0, 12)
+            };
+            options.Controls.Add(lblModeNote, 1, 2);
+
+            var actionCard = CreateCard(
+                "CREACIÓN Y REGISTRO",
+                "En esta versión solo está integrada la interfaz. No se formateará ni escribirá en ninguna unidad.");
+
+            var progress = new ProgressBar
+            {
+                Name = "usbProgress",
+                Dock = DockStyle.Top,
+                Height = 18,
+                Minimum = 0,
+                Maximum = 100,
+                Value = 0,
+                Style = ProgressBarStyle.Continuous,
+                Margin = new Padding(0, 12, 0, 10)
+            };
+            var lblProgress = new Label
+            {
+                Text = "En espera",
+                Dock = DockStyle.Top,
+                AutoSize = true,
+                ForeColor = mutedColor,
+                Font = new Font("Segoe UI", 9F),
+                Margin = new Padding(0, 0, 0, 10)
+            };
+            var log = new ListBox
+            {
+                Name = "usbLog",
+                Dock = DockStyle.Top,
+                Height = 95,
+                BackColor = inputColor,
+                ForeColor = textColor,
+                BorderStyle = BorderStyle.FixedSingle,
+                Font = new Font("Consolas", 9F),
+                IntegralHeight = false,
+                Margin = new Padding(0, 0, 0, 12)
+            };
+            log.Items.Add("Interfaz USB Booteable iniciada.");
+            log.Items.Add("La creación real todavía no está implementada.");
+
+            var btnCreateUsb = CreateButton("Crear USB booteable", successColor);
+            btnCreateUsb.Width = 210;
+            btnCreateUsb.Height = 42;
+            btnCreateUsb.Click += (_, _) =>
+            {
+                MessageBox.Show(
+                    this,
+                    "La interfaz está preparada, pero la creación real todavía no está implementada. " +
+                    "Por ahora no se borrará ni modificará ninguna unidad USB.",
+                    "Función en desarrollo",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Information);
+                log.Items.Add($"[{DateTime.Now:HH:mm:ss}] Solicitud de creación: función no habilitada.");
+                log.TopIndex = log.Items.Count - 1;
+            };
+
+            actionCard.Controls.Add(btnCreateUsb);
+            actionCard.Controls.Add(log);
+            actionCard.Controls.Add(lblProgress);
+            actionCard.Controls.Add(progress);
+
+            deviceCard.Margin = new Padding(0, 0, 0, 16);
+            isoCard.Margin = new Padding(0, 0, 0, 16);
+            optionsCard.Margin = new Padding(0, 0, 0, 16);
+            main.Controls.Add(header, 0, 0);
+            main.Controls.Add(deviceCard, 0, 1);
+            main.Controls.Add(isoCard, 0, 2);
+            main.Controls.Add(optionsCard, 0, 3);
+            main.Controls.Add(actionCard, 0, 4);
+            main.RowCount = 5;
+            main.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+
+            view.Controls.Add(main);
+            return view;
         }
 
         private Panel CreateCard(string heading, string description)
