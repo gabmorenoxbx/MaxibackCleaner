@@ -1,4 +1,5 @@
-﻿using System;
+﻿
+using System;
 using System.Collections.Generic;
 using System.IO;
 
@@ -13,7 +14,7 @@ namespace MaxibackCleaner.Services
             logger = appLogger;
         }
 
-        // Método compatible con el código anterior de la aplicación.
+        // Método compatible con el código anterior.
         public int CleanOldFiles(string folderPath, int retentionMonths = 3)
         {
             if (retentionMonths != 3 &&
@@ -28,7 +29,7 @@ namespace MaxibackCleaner.Services
             return CleanOldFiles(folderPath, retentionMonths + "months");
         }
 
-        // Nuevo método: permite las siete frecuencias.
+        // Limpieza de archivos antiguos de MaxiBack.
         public int CleanOldFiles(string folderPath, string frequency)
         {
             if (string.IsNullOrWhiteSpace(folderPath))
@@ -97,6 +98,11 @@ namespace MaxibackCleaner.Services
                         {
                             FileInfo info = new FileInfo(file);
 
+                            // No procesar enlaces simbólicos.
+                            if ((info.Attributes &
+                                 FileAttributes.ReparsePoint) != 0)
+                                continue;
+
                             if (info.LastWriteTime < cutoff)
                             {
                                 info.Delete();
@@ -120,7 +126,6 @@ namespace MaxibackCleaner.Services
                         {
                             DirectoryInfo info = new DirectoryInfo(subfolder);
 
-                            // No seguir enlaces a otras ubicaciones.
                             if ((info.Attributes &
                                  FileAttributes.ReparsePoint) == 0)
                             {
@@ -147,6 +152,221 @@ namespace MaxibackCleaner.Services
                 "Fin de limpieza. Total eliminado: " + deletedCount);
 
             return deletedCount;
+        }
+
+        // NUEVA FUNCIÓN:
+        // Limpia el contenido de %TEMP% y Windows\Temp.
+        // Devuelve la cantidad de archivos eliminados y omitidos.
+        public (int Deleted, int Skipped) CleanTemporaryFiles()
+        {
+            int deleted = 0;
+            int skipped = 0;
+
+            string userTemp = Path.GetFullPath(Path.GetTempPath());
+
+            string windowsFolder = Environment.GetFolderPath(
+                Environment.SpecialFolder.Windows);
+
+            if (string.IsNullOrWhiteSpace(windowsFolder))
+            {
+                throw new InvalidOperationException(
+                    "No se pudo localizar la carpeta de Windows.");
+            }
+
+            string windowsTemp = Path.GetFullPath(
+                Path.Combine(windowsFolder, "Temp"));
+
+            string[] tempFolders =
+            {
+                userTemp,
+                windowsTemp
+            };
+
+            logger.Write("Inicio de limpieza de temporales.");
+
+            foreach (string folder in tempFolders)
+            {
+                try
+                {
+                    string root = Path.GetFullPath(folder);
+
+                    // Protección adicional: nunca limpiar una raíz de unidad.
+                    string driveRoot = Path.GetPathRoot(root) ?? "";
+
+                    if (string.Equals(
+                        root.TrimEnd('\\', '/'),
+                        driveRoot.TrimEnd('\\', '/'),
+                        StringComparison.OrdinalIgnoreCase))
+                    {
+                        logger.Write(
+                            "Ruta temporal rechazada por seguridad: " + root);
+                        skipped++;
+                        continue;
+                    }
+
+                    if (!Directory.Exists(root))
+                    {
+                        logger.Write(
+                            "Carpeta temporal inexistente: " + root);
+                        continue;
+                    }
+
+                    logger.Write("Limpiando temporales: " + root);
+
+                    CleanDirectoryContents(
+                        root,
+                        ref deleted,
+                        ref skipped);
+                }
+                catch (Exception ex)
+                {
+                    skipped++;
+
+                    logger.Write(
+                        "Error en carpeta temporal " +
+                        folder + ": " + ex.Message);
+                }
+            }
+
+            logger.Write(
+                "Fin de limpieza de temporales. " +
+                "Eliminados: " + deleted +
+                ". Omitidos: " + skipped);
+
+            return (deleted, skipped);
+        }
+
+        // Elimina el contenido de una carpeta sin eliminar la raíz.
+        // Recorre las subcarpetas y evita seguir enlaces a otras ubicaciones.
+        private void CleanDirectoryContents(
+            string root,
+            ref int deleted,
+            ref int skipped)
+        {
+            var folders = new Stack<(string Path, bool Visited)>();
+            folders.Push((root, false));
+
+            while (folders.Count > 0)
+            {
+                var item = folders.Pop();
+                string current = item.Path;
+
+                if (!item.Visited)
+                {
+                    try
+                    {
+                        // Primero procesamos los archivos.
+                        foreach (string file in Directory.GetFiles(current))
+                        {
+                            try
+                            {
+                                FileAttributes attributes =
+                                    File.GetAttributes(file);
+
+                                // No tocar enlaces ni puntos de reanálisis.
+                                if ((attributes &
+                                     FileAttributes.ReparsePoint) != 0)
+                                {
+                                    skipped++;
+                                    logger.Write(
+                                        "Enlace omitido: " + file);
+                                    continue;
+                                }
+
+                                File.Delete(file);
+                                deleted++;
+
+                                logger.Write(
+                                    "Temporal eliminado: " + file);
+                            }
+                            catch (Exception ex)
+                            {
+                                skipped++;
+
+                                logger.Write(
+                                    "Temporal omitido: " + file +
+                                    ". Motivo: " + ex.Message);
+                            }
+                        }
+
+                        // Marcar la carpeta para intentar eliminarla
+                        // después de procesar sus subcarpetas.
+                        folders.Push((current, true));
+
+                        foreach (string subfolder in
+                                 Directory.GetDirectories(current))
+                        {
+                            try
+                            {
+                                FileAttributes attributes =
+                                    File.GetAttributes(subfolder);
+
+                                if ((attributes &
+                                     FileAttributes.ReparsePoint) != 0)
+                                {
+                                    skipped++;
+
+                                    logger.Write(
+                                        "Carpeta enlazada omitida: " +
+                                        subfolder);
+
+                                    continue;
+                                }
+
+                                folders.Push((subfolder, false));
+                            }
+                            catch (Exception ex)
+                            {
+                                skipped++;
+
+                                logger.Write(
+                                    "No se pudo revisar la carpeta " +
+                                    subfolder + ": " + ex.Message);
+                            }
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        skipped++;
+
+                        logger.Write(
+                            "No se pudo acceder a " +
+                            current + ": " + ex.Message);
+                    }
+                }
+                else
+                {
+                    // Se eliminan solamente las subcarpetas que hayan
+                    // quedado vacías. Nunca se elimina la raíz temporal.
+                    if (string.Equals(
+                        current,
+                        root,
+                        StringComparison.OrdinalIgnoreCase))
+                    {
+                        continue;
+                    }
+
+                    try
+                    {
+                        Directory.Delete(current, false);
+
+                        logger.Write(
+                            "Carpeta temporal vacía eliminada: " + current);
+                    }
+                    catch (DirectoryNotFoundException)
+                    {
+                        // Otro proceso pudo haberla eliminado.
+                    }
+                    catch (Exception ex)
+                    {
+                        skipped++;
+
+                        logger.Write(
+                            "Carpeta no eliminada: " +
+                            current + ". Motivo: " + ex.Message);
+                    }
+                }
+            }
         }
 
         private static DateTime GetCutoff(string frequency)
