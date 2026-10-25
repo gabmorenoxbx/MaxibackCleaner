@@ -5,6 +5,7 @@ using System.Management;
 using System.Text;
 using System.Threading.Tasks;
 using System.Windows.Forms;
+using LibreHardwareMonitor.Hardware;
 
 namespace MaxibackCleaner
 {
@@ -239,13 +240,14 @@ namespace MaxibackCleaner
             AppendSection(
                 sb,
                 "PROCESADOR",
-                "SELECT Name, Manufacturer, NumberOfCores, NumberOfLogicalProcessors, MaxClockSpeed FROM Win32_Processor",
+                "SELECT Name, Manufacturer, NumberOfCores, NumberOfLogicalProcessors, CurrentClockSpeed, MaxClockSpeed FROM Win32_Processor",
                 obj =>
                 {
                     AddProperty(sb, "Modelo", obj, "Name");
                     AddProperty(sb, "Fabricante", obj, "Manufacturer");
                     AddProperty(sb, "Núcleos", obj, "NumberOfCores");
                     AddProperty(sb, "Procesadores lógicos", obj, "NumberOfLogicalProcessors");
+                    AddProperty(sb, "Frecuencia actual informada por Windows", obj, "CurrentClockSpeed", " MHz");
                     AddProperty(sb, "Frecuencia máxima informada", obj, "MaxClockSpeed", " MHz");
                 });
 
@@ -336,15 +338,81 @@ namespace MaxibackCleaner
                         sb.AppendLine("Fecha de lanzamiento informada: " + release);
                 });
 
+            AppendLiveClockSensors(sb);
+
             sb.AppendLine();
             sb.AppendLine("NOTAS");
             sb.AppendLine("-----");
             sb.AppendLine("- Algunos fabricantes no informan todos los datos.");
-            sb.AppendLine("- La velocidad de RAM puede variar según la configuración.");
+            sb.AppendLine("- La velocidad de RAM configurada se informa en MHz; algunos equipos muestran la frecuencia efectiva de forma distinta según DDR.");
+            sb.AppendLine("- Los relojes en tiempo real de CPU/GPU dependen de que el hardware y el controlador expongan sensores compatibles.");
             sb.AppendLine("- La memoria gráfica informada puede ser aproximada.");
             sb.AppendLine("- Windows no siempre identifica de forma concluyente si un disco es HDD o SSD.");
 
             return sb.ToString();
+        }
+
+        private static void AppendLiveClockSensors(StringBuilder sb)
+        {
+            sb.AppendLine();
+            sb.AppendLine("FRECUENCIAS DE RELOJ EN TIEMPO REAL");
+            sb.AppendLine("-----------------------------------");
+
+            Computer? computer = null;
+            try
+            {
+                computer = new Computer
+                {
+                    IsCpuEnabled = true,
+                    IsGpuEnabled = true,
+                    IsMemoryEnabled = true
+                };
+
+                computer.Open();
+                bool found = false;
+
+                foreach (IHardware hardware in computer.Hardware)
+                    found |= AppendClockSensors(sb, hardware);
+
+                if (!found)
+                    sb.AppendLine("El controlador no expuso sensores de frecuencia en esta consulta.");
+            }
+            catch (Exception ex)
+            {
+                sb.AppendLine("Sensores en tiempo real no disponibles: " + ex.Message);
+            }
+            finally
+            {
+                try { computer?.Close(); }
+                catch { /* El informe ya contiene los datos que se pudieron leer. */ }
+            }
+        }
+
+        private static bool AppendClockSensors(StringBuilder sb, IHardware hardware)
+        {
+            bool found = false;
+
+            try
+            {
+                hardware.Update();
+                foreach (ISensor sensor in hardware.Sensors)
+                {
+                    if (sensor.SensorType != SensorType.Clock || !sensor.Value.HasValue)
+                        continue;
+
+                    sb.AppendLine($"{hardware.Name} - {sensor.Name}: {sensor.Value.Value:0.0} MHz");
+                    found = true;
+                }
+            }
+            catch (Exception ex)
+            {
+                sb.AppendLine($"{hardware.Name}: no se pudieron leer los sensores ({ex.Message})");
+            }
+
+            foreach (IHardware child in hardware.SubHardware)
+                found |= AppendClockSensors(sb, child);
+
+            return found;
         }
 
         private static void AppendSection(

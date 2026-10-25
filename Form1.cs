@@ -5,6 +5,10 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.Drawing;
 using System.IO;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
+using System.Text.Json;
 using System.Windows.Forms;
 using MaxibackCleaner.Models;
 using MaxibackCleaner.Services;
@@ -40,6 +44,23 @@ namespace MaxibackCleaner
         private Panel cleaningView = null!;
         private Panel usbBootableView = null!;
         private WindowsOptimizationForm optimizationView = null!;
+
+        // Controles y estado del creador de USB booteables.
+        private ComboBox cmbUsbDevice = null!;
+        private TextBox txtIsoPath = null!;
+        private ComboBox cmbPartition = null!;
+        private ComboBox cmbTarget = null!;
+        private ComboBox cmbFileSystem = null!;
+        private ComboBox cmbClusterSize = null!;
+        private TextBox txtVolumeLabel = null!;
+        private ProgressBar usbProgress = null!;
+        private Label lblUsbProgress = null!;
+        private ListBox usbLog = null!;
+        private Button btnRefreshUsb = null!;
+        private Button btnCreateUsb = null!;
+        private Button btnCancelUsb = null!;
+        private CancellationTokenSource? usbCancellation;
+        private bool usbCreationRunning;
 
         private bool exitRequested;
 
@@ -352,6 +373,8 @@ namespace MaxibackCleaner
             {
                 usbBootableView.BringToFront();
                 contentPanel.Controls.SetChildIndex(usbBootableView, 0);
+                if (cmbUsbDevice != null && cmbUsbDevice.Items.Count <= 1 && !usbCreationRunning)
+                    _ = RefreshUsbDevicesAsync();
             }
             else
             {
@@ -613,13 +636,13 @@ namespace MaxibackCleaner
                 AutoSize = true,
                 AutoSizeMode = AutoSizeMode.GrowAndShrink,
                 ColumnCount = 1,
-                RowCount = 4,
+                RowCount = 5,
                 BackColor = backgroundColor,
                 Margin = Padding.Empty,
                 Padding = Padding.Empty
             };
             main.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-            for (int i = 0; i < 4; i++)
+            for (int i = 0; i < 5; i++)
                 main.RowStyles.Add(new RowStyle(SizeType.AutoSize));
 
             var header = new Panel
@@ -639,7 +662,7 @@ namespace MaxibackCleaner
             });
             header.Controls.Add(new Label
             {
-                Text = "Prepará una unidad USB de arranque a partir de una imagen ISO.",
+                Text = "Creá memorias de arranque de Windows o Linux desde una imagen ISO.",
                 Location = new Point(2, 43),
                 AutoSize = true,
                 Font = new Font("Segoe UI", 9.5F),
@@ -648,7 +671,7 @@ namespace MaxibackCleaner
 
             var deviceCard = CreateCard(
                 "DISPOSITIVO USB",
-                "Seleccioná cuidadosamente la unidad. El proceso real de creación todavía no está habilitado.");
+                "Se enumeran discos físicos identificados por Windows como USB. Verificá modelo y capacidad antes de continuar.");
 
             var deviceLayout = new TableLayoutPanel
             {
@@ -662,7 +685,7 @@ namespace MaxibackCleaner
             deviceLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
             deviceLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 130));
 
-            var cmbUsbDevice = new ComboBox
+            cmbUsbDevice = new ComboBox
             {
                 Name = "cmbUsbDevice",
                 Dock = DockStyle.Top,
@@ -676,53 +699,20 @@ namespace MaxibackCleaner
             cmbUsbDevice.Items.Add("Presioná Actualizar para buscar unidades USB");
             cmbUsbDevice.SelectedIndex = 0;
 
-            var btnRefreshUsb = CreateButton("Actualizar", inputColor);
+            btnRefreshUsb = CreateButton("Actualizar", inputColor);
             btnRefreshUsb.ForeColor = textColor;
             btnRefreshUsb.Dock = DockStyle.Top;
             btnRefreshUsb.Height = 34;
-            btnRefreshUsb.Click += (_, _) =>
-            {
-                cmbUsbDevice.Items.Clear();
-                try
-                {
-                    foreach (DriveInfo drive in DriveInfo.GetDrives())
-                    {
-                        try
-                        {
-                            if (drive.IsReady && drive.DriveType == DriveType.Removable)
-                            {
-                                string label = string.IsNullOrWhiteSpace(drive.VolumeLabel)
-                                    ? "Sin etiqueta"
-                                    : drive.VolumeLabel;
-                                cmbUsbDevice.Items.Add(
-                                    $"{drive.Name}  |  {label}  |  {drive.TotalSize / (1024 * 1024 * 1024.0):0.0} GB");
-                            }
-                        }
-                        catch (IOException) { }
-                        catch (UnauthorizedAccessException) { }
-                    }
-
-                    if (cmbUsbDevice.Items.Count == 0)
-                        cmbUsbDevice.Items.Add("No se detectaron unidades extraíbles");
-
-                    cmbUsbDevice.SelectedIndex = 0;
-                }
-                catch (Exception ex)
-                {
-                    logger.Write("Error al buscar unidades USB: " + ex);
-                    MessageBox.Show(this, ex.Message, "Error al buscar USB",
-                        MessageBoxButtons.OK, MessageBoxIcon.Error);
-                }
-            };
+            btnRefreshUsb.Click += async (_, _) => await RefreshUsbDevicesAsync();
 
             var lblUsbWarning = new Label
             {
-                Text = "Advertencia: crear un USB booteable puede borrar todos los datos de la unidad seleccionada.",
+                Text = "ADVERTENCIA: la creación borra las particiones y los datos del disco seleccionado. No selecciones un disco que contenga información importante.",
                 Dock = DockStyle.Top,
                 AutoSize = true,
                 MaximumSize = new Size(760, 0),
                 ForeColor = Color.FromArgb(255, 190, 95),
-                Font = new Font("Segoe UI", 9F),
+                Font = new Font("Segoe UI", 9F, FontStyle.Bold),
                 Margin = new Padding(0, 8, 0, 0)
             };
             deviceLayout.Controls.Add(cmbUsbDevice, 0, 0);
@@ -733,7 +723,7 @@ namespace MaxibackCleaner
 
             var isoCard = CreateCard(
                 "IMAGEN ISO",
-                "Elegí el archivo ISO del sistema operativo que querés instalar.");
+                "Elegí una ISO válida de Windows 10, Windows 11 o una distribución Linux compatible.");
 
             var isoLayout = new TableLayoutPanel
             {
@@ -747,7 +737,7 @@ namespace MaxibackCleaner
             isoLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
             isoLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 130));
 
-            var txtIsoPath = new TextBox
+            txtIsoPath = new TextBox
             {
                 Name = "txtIsoPath",
                 Dock = DockStyle.Top,
@@ -772,7 +762,10 @@ namespace MaxibackCleaner
                     Multiselect = false
                 };
                 if (dialog.ShowDialog(this) == DialogResult.OK)
+                {
                     txtIsoPath.Text = dialog.FileName;
+                    AddUsbLog("ISO seleccionada: " + dialog.FileName);
+                }
             };
             isoLayout.Controls.Add(txtIsoPath, 0, 0);
             isoLayout.Controls.Add(btnBrowseIso, 1, 0);
@@ -780,14 +773,14 @@ namespace MaxibackCleaner
 
             var optionsCard = CreateCard(
                 "CONFIGURACIÓN DE ARRANQUE",
-                "Los valores se muestran como opciones de configuración; todavía no modifican la unidad USB.");
+                "Elegí las opciones desde los desplegables, al estilo Rufus. En ISO híbridas de Linux se escribe la imagen directamente y las opciones de partición/formato se ignoran; para ISO de instalación de Windows se prepara la unidad y se copian sus archivos.");
 
             var options = new TableLayoutPanel
             {
                 Dock = DockStyle.Top,
                 AutoSize = true,
                 ColumnCount = 2,
-                RowCount = 4,
+                RowCount = 3,
                 BackColor = cardColor,
                 Margin = new Padding(0, 15, 0, 0)
             };
@@ -835,11 +828,11 @@ namespace MaxibackCleaner
                 options.Controls.Add(wrapper, column, row);
             }
 
-            AddOption("Esquema de partición", MakeCombo("cmbPartition", "GPT", "MBR"), 0, 0);
-            AddOption("Sistema de destino", MakeCombo("cmbTarget", "UEFI (no CSM)", "BIOS o UEFI-CSM"), 1, 0);
-            AddOption("Sistema de archivos", MakeCombo("cmbFileSystem", "FAT32", "NTFS", "exFAT"), 0, 1);
-            AddOption("Tamaño de clúster", MakeCombo("cmbClusterSize", "Predeterminado", "512 bytes", "1 KB", "2 KB", "4 KB", "8 KB", "16 KB", "32 KB", "64 KB"), 1, 1);
-            AddOption("Etiqueta del volumen", new TextBox
+            cmbPartition = MakeCombo("cmbPartition", "GPT", "MBR");
+            cmbTarget = MakeCombo("cmbTarget", "UEFI (no CSM)", "BIOS o UEFI-CSM");
+            cmbFileSystem = MakeCombo("cmbFileSystem", "FAT32", "NTFS");
+            cmbClusterSize = MakeCombo("cmbClusterSize", "Predeterminado", "512 bytes", "1 KB", "2 KB", "4 KB", "8 KB", "16 KB", "32 KB", "64 KB");
+            txtVolumeLabel = new TextBox
             {
                 Name = "txtVolumeLabel",
                 Text = "MAXIBACK_USB",
@@ -849,11 +842,17 @@ namespace MaxibackCleaner
                 BorderStyle = BorderStyle.FixedSingle,
                 Font = new Font("Segoe UI", 10F),
                 Margin = new Padding(0, 4, 12, 12)
-            }, 0, 2);
+            };
+
+            AddOption("Esquema de partición", cmbPartition, 0, 0);
+            AddOption("Sistema de destino", cmbTarget, 1, 0);
+            AddOption("Sistema de archivos", cmbFileSystem, 0, 1);
+            AddOption("Tamaño de clúster", cmbClusterSize, 1, 1);
+            AddOption("Etiqueta del volumen", txtVolumeLabel, 0, 2);
 
             var lblModeNote = new Label
             {
-                Text = "Compatibilidad entre ISO, FAT32/NTFS y UEFI/BIOS: se validará cuando se implemente el motor de creación.",
+                Text = "UEFI + FAT32 es la opción más compatible para Windows moderno. Si install.wim supera 4 GB, el motor intenta dividirlo en archivos .swm.",
                 Dock = DockStyle.Fill,
                 ForeColor = mutedColor,
                 Font = new Font("Segoe UI", 8.5F),
@@ -865,9 +864,9 @@ namespace MaxibackCleaner
 
             var actionCard = CreateCard(
                 "CREACIÓN Y REGISTRO",
-                "En esta versión solo está integrada la interfaz. No se formateará ni escribirá en ninguna unidad.");
+                "La operación puede tardar varios minutos. No retires la memoria hasta que el proceso termine.");
 
-            var progress = new ProgressBar
+            usbProgress = new ProgressBar
             {
                 Name = "usbProgress",
                 Dock = DockStyle.Top,
@@ -878,7 +877,7 @@ namespace MaxibackCleaner
                 Style = ProgressBarStyle.Continuous,
                 Margin = new Padding(0, 12, 0, 10)
             };
-            var lblProgress = new Label
+            lblUsbProgress = new Label
             {
                 Text = "En espera",
                 Dock = DockStyle.Top,
@@ -887,11 +886,11 @@ namespace MaxibackCleaner
                 Font = new Font("Segoe UI", 9F),
                 Margin = new Padding(0, 0, 0, 10)
             };
-            var log = new ListBox
+            usbLog = new ListBox
             {
                 Name = "usbLog",
                 Dock = DockStyle.Top,
-                Height = 95,
+                Height = 115,
                 BackColor = inputColor,
                 ForeColor = textColor,
                 BorderStyle = BorderStyle.FixedSingle,
@@ -899,43 +898,254 @@ namespace MaxibackCleaner
                 IntegralHeight = false,
                 Margin = new Padding(0, 0, 0, 12)
             };
-            log.Items.Add("Interfaz USB Booteable iniciada.");
-            log.Items.Add("La creación real todavía no está implementada.");
+            usbLog.Items.Add("Motor USB inicializado.");
+            usbLog.Items.Add("Elegí un dispositivo y una ISO para comenzar.");
 
-            var btnCreateUsb = CreateButton("Crear USB booteable", successColor);
-            btnCreateUsb.Width = 210;
-            btnCreateUsb.Height = 42;
-            btnCreateUsb.Click += (_, _) =>
+            var buttonLayout = new FlowLayoutPanel
             {
-                MessageBox.Show(
-                    this,
-                    "La interfaz está preparada, pero la creación real todavía no está implementada. " +
-                    "Por ahora no se borrará ni modificará ninguna unidad USB.",
-                    "Función en desarrollo",
-                    MessageBoxButtons.OK,
-                    MessageBoxIcon.Information);
-                log.Items.Add($"[{DateTime.Now:HH:mm:ss}] Solicitud de creación: función no habilitada.");
-                log.TopIndex = log.Items.Count - 1;
+                Dock = DockStyle.Top,
+                AutoSize = true,
+                WrapContents = true,
+                FlowDirection = FlowDirection.LeftToRight,
+                BackColor = cardColor,
+                Margin = new Padding(0, 0, 0, 0)
             };
 
-            actionCard.Controls.Add(btnCreateUsb);
-            actionCard.Controls.Add(log);
-            actionCard.Controls.Add(lblProgress);
-            actionCard.Controls.Add(progress);
+            btnCreateUsb = CreateButton("Crear USB booteable", successColor);
+            btnCreateUsb.Width = 210;
+            btnCreateUsb.Height = 42;
+            btnCreateUsb.Click += async (_, _) => await CreateUsbAsync();
+
+            btnCancelUsb = CreateButton("Cancelar", dangerColor);
+            btnCancelUsb.Width = 120;
+            btnCancelUsb.Height = 42;
+            btnCancelUsb.Enabled = false;
+            btnCancelUsb.Click += (_, _) =>
+            {
+                if (usbCancellation != null && !usbCancellation.IsCancellationRequested)
+                {
+                    btnCancelUsb.Enabled = false;
+                    lblUsbProgress.Text = "Cancelando... la unidad puede quedar incompleta.";
+                    AddUsbLog("Se solicitó cancelar la operación.");
+                    usbCancellation.Cancel();
+                }
+            };
+
+            buttonLayout.Controls.Add(btnCreateUsb);
+            buttonLayout.Controls.Add(btnCancelUsb);
+            actionCard.Controls.Add(buttonLayout);
+            actionCard.Controls.Add(usbLog);
+            actionCard.Controls.Add(lblUsbProgress);
+            actionCard.Controls.Add(usbProgress);
 
             deviceCard.Margin = new Padding(0, 0, 0, 16);
             isoCard.Margin = new Padding(0, 0, 0, 16);
             optionsCard.Margin = new Padding(0, 0, 0, 16);
+            actionCard.Margin = new Padding(0, 0, 0, 16);
+
             main.Controls.Add(header, 0, 0);
             main.Controls.Add(deviceCard, 0, 1);
             main.Controls.Add(isoCard, 0, 2);
             main.Controls.Add(optionsCard, 0, 3);
             main.Controls.Add(actionCard, 0, 4);
-            main.RowCount = 5;
-            main.RowStyles.Add(new RowStyle(SizeType.AutoSize));
 
             view.Controls.Add(main);
             return view;
+        }
+
+        private async Task RefreshUsbDevicesAsync()
+        {
+            if (usbCreationRunning || btnRefreshUsb == null || cmbUsbDevice == null)
+                return;
+
+            btnRefreshUsb.Enabled = false;
+            lblUsbProgress.Text = "Buscando dispositivos USB físicos...";
+
+            bool comboUpdateStarted = false;
+            try
+            {
+                List<UsbDeviceInfo> devices = await Task.Run(UsbDeviceScanner.GetUsbDevices);
+
+                cmbUsbDevice.BeginUpdate();
+                comboUpdateStarted = true;
+                cmbUsbDevice.Items.Clear();
+
+                foreach (UsbDeviceInfo device in devices)
+                    cmbUsbDevice.Items.Add(device);
+
+                if (devices.Count == 0)
+                {
+                    cmbUsbDevice.Items.Add("No se detectaron discos USB físicos.");
+                    cmbUsbDevice.SelectedIndex = 0;
+                    AddUsbLog("No se detectaron discos USB. Comprobá que estén conectados y que Windows los reconozca.");
+                }
+                else
+                {
+                    cmbUsbDevice.SelectedIndex = 0;
+                    AddUsbLog($"Dispositivos USB detectados: {devices.Count}.");
+                }
+
+                lblUsbProgress.Text = devices.Count == 0
+                    ? "No se encontraron dispositivos USB."
+                    : $"Se encontraron {devices.Count} dispositivo(s) USB.";
+            }
+            catch (Exception ex)
+            {
+                logger.Write("Error al detectar discos USB: " + ex);
+                lblUsbProgress.Text = "No se pudo consultar la lista de discos USB.";
+                AddUsbLog("ERROR al detectar USB: " + ex.Message);
+                MessageBox.Show(this,
+                    "No se pudo enumerar los discos USB. Comprobá que el servicio de almacenamiento de Windows esté disponible.\n\n" + ex.Message,
+                    "Detección de USB", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+            finally
+            {
+                if (comboUpdateStarted && cmbUsbDevice != null && !cmbUsbDevice.IsDisposed)
+                    cmbUsbDevice.EndUpdate();
+                if (btnRefreshUsb != null && !btnRefreshUsb.IsDisposed)
+                    btnRefreshUsb.Enabled = true;
+            }
+        }
+
+        private async Task CreateUsbAsync()
+        {
+            if (usbCreationRunning)
+                return;
+
+            if (cmbUsbDevice.SelectedItem is not UsbDeviceInfo device)
+            {
+                MessageBox.Show(this, "Seleccioná un disco USB físico válido.", "Falta seleccionar USB", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
+            if (string.IsNullOrWhiteSpace(txtIsoPath.Text) || !File.Exists(txtIsoPath.Text))
+            {
+                MessageBox.Show(this, "Seleccioná una imagen ISO existente.", "Falta seleccionar ISO", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
+            UsbFileSystem fileSystem = cmbFileSystem.SelectedItem?.ToString() switch
+            {
+                "NTFS" => UsbFileSystem.Ntfs,
+                "exFAT" => UsbFileSystem.ExFat,
+                _ => UsbFileSystem.Fat32
+            };
+
+            BootTarget target = (cmbTarget.SelectedItem?.ToString() ?? "").StartsWith("BIOS", StringComparison.OrdinalIgnoreCase)
+                ? BootTarget.BiosOrCsm
+                : BootTarget.Uefi;
+
+            PartitionScheme scheme = cmbPartition.SelectedItem?.ToString() == "MBR"
+                ? PartitionScheme.Mbr
+                : PartitionScheme.Gpt;
+
+            int clusterBytes = cmbClusterSize.SelectedItem?.ToString() switch
+            {
+                "512 bytes" => 512,
+                "1 KB" => 1024,
+                "2 KB" => 2048,
+                "4 KB" => 4096,
+                "8 KB" => 8192,
+                "16 KB" => 16384,
+                "32 KB" => 32768,
+                "64 KB" => 65536,
+                _ => 0
+            };
+
+            var options = new UsbBootOptions
+            {
+                DiskNumber = device.DiskNumber,
+                ExpectedModel = device.Model,
+                ExpectedSizeBytes = device.SizeBytes,
+                IsoPath = txtIsoPath.Text,
+                Scheme = scheme,
+                Target = target,
+                FileSystem = fileSystem,
+                VolumeLabel = txtVolumeLabel.Text.Trim(),
+                ClusterSizeBytes = clusterBytes
+            };
+
+            IsoInfo iso;
+            try
+            {
+                iso = await Task.Run(() => UsbBootableService.InspectIso(options.IsoPath));
+                string? validation = UsbBootableService.Validate(options, iso, device);
+                if (validation != null)
+                {
+                    MessageBox.Show(this, validation, "Configuración no válida", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    return;
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(this, "No se pudo validar la imagen ISO.\n\n" + ex.Message, "ISO no válida", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return;
+            }
+
+            string mode = iso.IsHybrid
+                ? "Escritura directa de la imagen híbrida. Las opciones de partición y formato se ignorarán para esta ISO."
+                : $"Preparación de particiones y copia de archivos ({scheme}, {target}, {fileSystem}).";
+
+            string confirmText =
+                $"SE BORRARÁ TODO EL CONTENIDO DEL DISCO SELECCIONADO.\n\n" +
+                $"Disco físico: {device.DiskNumber}\n" +
+                $"Modelo: {device.Model}\n" +
+                $"Capacidad: {device.SizeText}\n" +
+                $"Volúmenes actuales: {device.LettersText}\n\n" +
+                $"ISO: {Path.GetFileName(iso.Path)} ({UsbBootableService.FormatSize(iso.SizeBytes)})\n\n" +
+                $"Esquema: {scheme}\nSistema de destino: {target}\nSistema de archivos: {fileSystem}\nEtiqueta: {options.VolumeLabel}\n\n" +
+                mode + "\n\n" +
+                "Después de confirmar, Windows solicitará permiso de administrador (UAC) para preparar la memoria.\n\n" +
+                "¿Confirmás que querés continuar?";
+
+            if (MessageBox.Show(this, confirmText, "Confirmar creación del USB", MessageBoxButtons.YesNo, MessageBoxIcon.Warning, MessageBoxDefaultButton.Button2) != DialogResult.Yes)
+                return;
+
+            // La aplicación normal no necesita ejecutarse como administrador.
+            // Se inicia una segunda instancia elevada solamente para crear el USB.
+            try
+            {
+                string json = JsonSerializer.Serialize(options);
+                string encoded = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(json));
+                string exePath = Environment.ProcessPath ?? Application.ExecutablePath;
+
+                var startInfo = new ProcessStartInfo
+                {
+                    FileName = exePath,
+                    Arguments = "--create-bootable-usb " + encoded,
+                    UseShellExecute = true,
+                    Verb = "runas",
+                    WorkingDirectory = AppContext.BaseDirectory
+                };
+
+                Process.Start(startInfo);
+                AddUsbLog($"Se solicitó elevación de Windows para preparar el disco {device.DiskNumber}.");
+                lblUsbProgress.Text = "Se abrió el asistente elevado de creación USB.";
+            }
+            catch (Win32Exception ex) when (ex.NativeErrorCode == 1223)
+            {
+                AddUsbLog("El usuario canceló el permiso de administrador (UAC).");
+                MessageBox.Show(this, "Se canceló la solicitud de permisos. La memoria USB no fue modificada.", "Permiso cancelado", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            }
+            catch (Exception ex)
+            {
+                AddUsbLog("No se pudo iniciar el proceso elevado: " + ex.Message);
+                MessageBox.Show(this, "No se pudo abrir el proceso con permisos de administrador.\n\n" + ex.Message, "Error de permisos", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+
+        private void AddUsbLog(string message)
+        {
+            if (usbLog == null || usbLog.IsDisposed)
+                return;
+
+            string line = $"[{DateTime.Now:HH:mm:ss}] {message}";
+            usbLog.Items.Add(line);
+            while (usbLog.Items.Count > 500)
+                usbLog.Items.RemoveAt(0);
+            if (usbLog.Items.Count > 0)
+                usbLog.TopIndex = usbLog.Items.Count - 1;
+            logger?.Write("USB: " + message);
         }
 
         private Panel CreateCard(string heading, string description)
@@ -1518,6 +1728,7 @@ namespace MaxibackCleaner
                 return;
             }
 
+            usbCancellation?.Cancel();
             timer?.Stop();
             timer?.Dispose();
 

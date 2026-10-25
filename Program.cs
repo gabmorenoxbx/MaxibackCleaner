@@ -2,6 +2,8 @@ using System;
 using MaxibackCleaner.Models;
 using MaxibackCleaner.Services;
 using System.Windows.Forms;
+using System.Text;
+using System.Text.Json;
 
 namespace MaxibackCleaner
 {
@@ -10,6 +12,31 @@ namespace MaxibackCleaner
         [STAThread]
         static void Main(string[] args)
         {
+            // Este modo se ejecuta en una segunda instancia elevada por UAC.
+            // No muestra login/licencia: solo realiza la operación solicitada.
+            if (args.Length >= 2 && args[0].Equals("--create-bootable-usb", StringComparison.OrdinalIgnoreCase))
+            {
+                try
+                {
+                    string json = Encoding.UTF8.GetString(Convert.FromBase64String(args[1]));
+                    UsbBootOptions options = JsonSerializer.Deserialize<UsbBootOptions>(json)
+                        ?? throw new InvalidOperationException("No se pudieron leer las opciones de creación USB.");
+                    ApplicationConfiguration.Initialize();
+                    Application.Run(new UsbCreationElevatedForm(options));
+                }
+                catch (Exception ex)
+                {
+                    try
+                    {
+                        MessageBox.Show("No se pudo iniciar la creación del USB.\n\n" + ex.Message,
+                            "Maxiback Cleaner - USB", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    }
+                    catch { }
+                    Environment.ExitCode = 1;
+                }
+                return;
+            }
+
             // Las limpiezas automáticas no muestran ventanas.
             if (args.Length > 0 &&
                 args[0].Equals(

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Diagnostics;
@@ -73,7 +73,7 @@ namespace MaxibackCleaner.Services
         public string SizeText => UsbBootableService.FormatSize(SizeBytes);
 
         public override string ToString() =>
-            $"{LettersText}  |  {Model}  |  {SizeText}  |  {FileSystemText}";
+            $"Disco {DiskNumber}  |  {Model}  |  {SizeText}  |  {LettersText}  |  {FileSystemText}";
     }
 
     public sealed class IsoInfo
@@ -143,7 +143,29 @@ namespace MaxibackCleaner.Services
 
                 byte[] first = new byte[512];
                 stream.ReadExactly(first, 0, first.Length);
-                hybrid = first[510] == 0x55 && first[511] == 0xAA;
+
+                // La firma 55AA por sí sola no demuestra que una ISO sea híbrida:
+                // comprobamos también que el área MBR contenga una entrada de partición.
+                bool mbrSignature = first[510] == 0x55 && first[511] == 0xAA;
+                bool hasPartitionEntry = false;
+
+                if (mbrSignature)
+                {
+                    for (int i = 0; i < 4; i++)
+                    {
+                        int entry = 446 + (i * 16);
+                        byte partitionType = first[entry + 4];
+                        uint sectorCount = BitConverter.ToUInt32(first, entry + 12);
+
+                        if (partitionType != 0 && sectorCount > 0)
+                        {
+                            hasPartitionEntry = true;
+                            break;
+                        }
+                    }
+                }
+
+                hybrid = mbrSignature && hasPartitionEntry;
 
                 stream.Seek(32768, SeekOrigin.Begin);
                 byte[] descriptor = new byte[2048];
@@ -477,36 +499,57 @@ namespace MaxibackCleaner.Services
         {
             string fsName = FileSystemName(options.FileSystem);
 
-            Report(
-                2,
-                "Formateando la unidad...",
-                $"Modo: copia de archivos · {options.Scheme.ToString().ToUpperInvariant()} · " +
-                $"{(options.Target == BootTarget.Uefi ? "UEFI" : "BIOS/CSM")} · {fsName}.");
-
-            if (options.FileSystem == UsbFileSystem.Fat32 &&
-                options.ExpectedSizeBytes > Fat32MaxVolumeBytes)
-            {
-                WriteLog(
-                    "La unidad supera 32 GB: Windows solo formatea FAT32 hasta 32 GB. " +
-                    "Se crea una partición de 30 GB y el resto queda sin asignar.");
-                progress?.Report(new UsbProgress(-1, null,
-                    "La unidad supera 32 GB: se crea una partición FAT32 de 30 GB (límite de Windows)."));
-            }
-
-            await RunDiskpartAsync(BuildDiskpartScript(options), ct);
-
-            Report(15, "Esperando que Windows monte la unidad...", "Unidad formateada.");
-            string usbLetter = await WaitForVolumeAsync(options, ct);
-            Report(18, null, $"Unidad lista en {usbLetter}:.");
-
-            ct.ThrowIfCancellationRequested();
-
-            Report(20, "Montando la imagen ISO...", "Montando la ISO...");
+            Report(2, "Montando la imagen ISO...", "Montando la ISO para validar su estructura antes de modificar la memoria.");
             string isoLetter = await MountIsoAsync(options.IsoPath, ct);
 
             try
             {
                 string isoRoot = isoLetter + @":\";
+
+                // Validar el método de arranque antes de borrar las particiones de destino.
+                if (options.Target == BootTarget.Uefi)
+                {
+                    string efiBoot = Path.Combine(isoRoot, "efi", "boot");
+                    bool hasEfiLoader = Directory.Exists(efiBoot) &&
+                        (File.Exists(Path.Combine(efiBoot, "bootx64.efi")) ||
+                         File.Exists(Path.Combine(efiBoot, "bootia32.efi")) ||
+                         File.Exists(Path.Combine(efiBoot, "bootaa64.efi")));
+
+                    if (!hasEfiLoader)
+                    {
+                        throw new InvalidOperationException(
+                            "La ISO no contiene un cargador EFI estándar (EFI\\BOOT\\BOOTX64.EFI, BOOTIA32.EFI o BOOTAA64.EFI). " +
+                            "No se puede garantizar el arranque UEFI con el método de copia de archivos. No se modificó el USB.");
+                    }
+                }
+                else if (!File.Exists(Path.Combine(isoRoot, "boot", "bootsect.exe")))
+                {
+                    throw new InvalidOperationException(
+                        "La ISO no contiene boot\\bootsect.exe. El motor propio no puede preparar el arranque BIOS para esta ISO no híbrida. " +
+                        "Para Linux, usá una ISO híbrida compatible con escritura directa. No se modificó el USB.");
+                }
+
+                Report(10, "Formateando la unidad...", 
+                    $"Modo: copia de archivos · {options.Scheme.ToString().ToUpperInvariant()} · " +
+                    $"{(options.Target == BootTarget.Uefi ? "UEFI" : "BIOS/CSM")} · {fsName}.");
+
+                if (options.FileSystem == UsbFileSystem.Fat32 &&
+                    options.ExpectedSizeBytes > Fat32MaxVolumeBytes)
+                {
+                    WriteLog(
+                        "La unidad supera 32 GB: Windows solo formatea FAT32 hasta 32 GB. " +
+                        "Se crea una partición de 30 GB y el resto queda sin asignar.");
+                    progress?.Report(new UsbProgress(-1, null,
+                        "La unidad supera 32 GB: se crea una partición FAT32 de 30 GB (límite de Windows)."));
+                }
+
+                await RunDiskpartAsync(BuildDiskpartScript(options), ct);
+
+                Report(15, "Esperando que Windows monte la unidad...", "Unidad formateada.");
+                string usbLetter = await WaitForVolumeAsync(options, ct);
+                Report(18, null, $"Unidad lista en {usbLetter}:.");
+
+                ct.ThrowIfCancellationRequested();
                 string usbRoot = usbLetter + @":\";
 
                 Report(CopyProgressStart, "Analizando la ISO...", $"ISO montada en {isoLetter}:.");
@@ -679,12 +722,8 @@ namespace MaxibackCleaner.Services
 
             if (!File.Exists(bootsect))
             {
-                Report(
-                    94,
-                    null,
-                    "Advertencia: la ISO no incluye bootsect.exe, el arranque BIOS no está garantizado. " +
-                    "Si es una ISO de Linux, probá con una híbrida.");
-                return;
+                throw new InvalidOperationException(
+                    "La ISO no incluye bootsect.exe. No se puede garantizar el arranque BIOS con este método.");
             }
 
             Report(94, "Escribiendo el sector de arranque...", "Escribiendo el sector de arranque BIOS (bootsect).");
