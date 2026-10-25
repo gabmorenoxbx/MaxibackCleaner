@@ -15,36 +15,38 @@ namespace MaxibackCleaner.Services
         }
 
         // LIMPIEZA AUTOMÁTICA POR ANTIGÜEDAD.
+
+        // Compatibilidad con código anterior.
         public int CleanOldFiles(int retentionMonths = 3)
         {
-            if (retentionMonths != 3 &&
-                retentionMonths != 6 &&
-                retentionMonths != 12)
-            {
-                throw new ArgumentOutOfRangeException(
-                    nameof(retentionMonths),
-                    "La retención debe ser de 3, 6 o 12 meses.");
-            }
-
             throw new InvalidOperationException(
                 "Debés indicar la carpeta que querés limpiar.");
         }
 
-        public int CleanOldFiles(string folderPath, int retentionMonths = 3)
+        // Limpieza automática indicando los meses de retención.
+        public int CleanOldFiles(
+            string folderPath,
+            int retentionMonths = 3)
         {
-            if (retentionMonths != 3 &&
-                retentionMonths != 6 &&
-                retentionMonths != 12)
+            string frequency = retentionMonths switch
             {
-                throw new ArgumentOutOfRangeException(
+                1 => "1month",
+                3 => "3months",
+                6 => "6months",
+                12 => "12months",
+                _ => throw new ArgumentOutOfRangeException(
                     nameof(retentionMonths),
-                    "La retención debe ser de 3, 6 o 12 meses.");
-            }
+                    "La retención debe ser de 1, 3, 6 o 12 meses.")
+            };
 
-            return CleanOldFiles(folderPath, retentionMonths + "months");
+            return CleanOldFiles(folderPath, frequency);
         }
 
-        public int CleanOldFiles(string folderPath, string frequency)
+        // Limpieza automática por frecuencia.
+        // Solo admite 1, 3, 6 o 12 meses.
+        public int CleanOldFiles(
+            string folderPath,
+            string frequency)
         {
             string root = ValidateFolder(folderPath);
             DateTime cutoff = GetCutoff(frequency);
@@ -55,7 +57,7 @@ namespace MaxibackCleaner.Services
             var folders = new Stack<string>();
             folders.Push(root);
 
-            logger.Write($"Inicio de limpieza por antigüedad: {root}");
+            logger.Write($"Inicio de limpieza automática: {root}");
             logger.Write($"Frecuencia: {frequency}");
             logger.Write($"Fecha límite: {cutoff}");
 
@@ -69,7 +71,8 @@ namespace MaxibackCleaner.Services
                     {
                         try
                         {
-                            FileAttributes attributes = File.GetAttributes(file);
+                            FileAttributes attributes =
+                                File.GetAttributes(file);
 
                             if ((attributes & FileAttributes.ReparsePoint) != 0)
                             {
@@ -82,26 +85,35 @@ namespace MaxibackCleaner.Services
                             {
                                 DeleteFileSafely(file);
                                 deleted++;
-                                logger.Write($"Archivo antiguo eliminado: {file}");
+
+                                logger.Write(
+                                    $"Archivo antiguo eliminado: {file}");
                             }
                         }
                         catch (Exception ex)
                         {
                             skipped++;
-                            logger.Write($"Error con archivo {file}: {ex.Message}");
+
+                            logger.Write(
+                                $"Error con archivo {file}: {ex.Message}");
                         }
                     }
 
-                    foreach (string subfolder in Directory.GetDirectories(current))
+                    foreach (string subfolder in
+                             Directory.GetDirectories(current))
                     {
                         try
                         {
-                            FileAttributes attributes = File.GetAttributes(subfolder);
+                            FileAttributes attributes =
+                                File.GetAttributes(subfolder);
 
                             if ((attributes & FileAttributes.ReparsePoint) != 0)
                             {
                                 skipped++;
-                                logger.Write($"Carpeta enlazada omitida: {subfolder}");
+
+                                logger.Write(
+                                    $"Carpeta enlazada omitida: {subfolder}");
+
                                 continue;
                             }
 
@@ -110,27 +122,32 @@ namespace MaxibackCleaner.Services
                         catch (Exception ex)
                         {
                             skipped++;
-                            logger.Write($"Error con carpeta {subfolder}: {ex.Message}");
+
+                            logger.Write(
+                                $"Error con carpeta {subfolder}: {ex.Message}");
                         }
                     }
                 }
                 catch (Exception ex)
                 {
                     skipped++;
-                    logger.Write($"Error recorriendo {current}: {ex.Message}");
+
+                    logger.Write(
+                        $"Error recorriendo {current}: {ex.Message}");
                 }
             }
 
             logger.Write(
-                $"Fin de limpieza automática. Eliminados: {deleted}. Omitidos: {skipped}.");
+                $"Fin de limpieza automática. " +
+                $"Archivos eliminados: {deleted}. Omitidos: {skipped}.");
 
             return deleted;
         }
 
         // LIMPIEZA MANUAL COMPLETA.
-        // Elimina todos los archivos y subcarpetas.
-        // Conserva la carpeta raíz seleccionada.
-        public (int Deleted, int Skipped) CleanAllContents(string folderPath)
+        // Elimina el contenido, pero conserva la carpeta raíz.
+        public (int Deleted, int Skipped) CleanAllContents(
+            string folderPath)
         {
             string root = ValidateFolder(folderPath);
 
@@ -140,7 +157,8 @@ namespace MaxibackCleaner.Services
             var folders = new Stack<(string Path, bool Visited)>();
             folders.Push((root, false));
 
-            logger.Write($"Inicio de limpieza manual completa: {root}");
+            logger.Write(
+                $"Inicio de limpieza manual completa: {root}");
 
             while (folders.Count > 0)
             {
@@ -152,17 +170,20 @@ namespace MaxibackCleaner.Services
                     if (!item.Visited)
                     {
                         string[] files = Directory.GetFiles(current);
-                        string[] subfolders = Directory.GetDirectories(current);
+                        string[] subfolders =
+                            Directory.GetDirectories(current);
 
                         logger.Write(
                             $"Revisando {current}: " +
-                            $"{files.Length} archivos, {subfolders.Length} subcarpetas.");
+                            $"{files.Length} archivos, " +
+                            $"{subfolders.Length} subcarpetas.");
 
                         foreach (string file in files)
                         {
                             try
                             {
-                                FileAttributes attributes = File.GetAttributes(file);
+                                FileAttributes attributes =
+                                    File.GetAttributes(file);
 
                                 if ((attributes & FileAttributes.ReparsePoint) != 0)
                                 {
@@ -179,23 +200,28 @@ namespace MaxibackCleaner.Services
                             catch (Exception ex)
                             {
                                 skipped++;
-                                logger.Write($"No se pudo eliminar {file}: {ex.Message}");
+
+                                logger.Write(
+                                    $"No se pudo eliminar {file}: {ex.Message}");
                             }
                         }
 
-                        // Se elimina cada subcarpeta después de vaciarla.
                         folders.Push((current, true));
 
                         foreach (string subfolder in subfolders)
                         {
                             try
                             {
-                                FileAttributes attributes = File.GetAttributes(subfolder);
+                                FileAttributes attributes =
+                                    File.GetAttributes(subfolder);
 
                                 if ((attributes & FileAttributes.ReparsePoint) != 0)
                                 {
                                     skipped++;
-                                    logger.Write($"Carpeta enlazada omitida: {subfolder}");
+
+                                    logger.Write(
+                                        $"Carpeta enlazada omitida: {subfolder}");
+
                                     continue;
                                 }
 
@@ -204,13 +230,14 @@ namespace MaxibackCleaner.Services
                             catch (Exception ex)
                             {
                                 skipped++;
-                                logger.Write($"No se pudo revisar {subfolder}: {ex.Message}");
+
+                                logger.Write(
+                                    $"No se pudo revisar {subfolder}: {ex.Message}");
                             }
                         }
                     }
                     else
                     {
-                        // Nunca borrar la carpeta raíz elegida.
                         if (SamePath(current, root))
                             continue;
 
@@ -219,33 +246,40 @@ namespace MaxibackCleaner.Services
                             Directory.Delete(current, false);
                             deleted++;
 
-                            logger.Write($"Subcarpeta eliminada: {current}");
+                            logger.Write(
+                                $"Subcarpeta eliminada: {current}");
                         }
                         catch (DirectoryNotFoundException)
                         {
-                            // Ya no existe.
+                            // La carpeta ya no existe.
                         }
                         catch (Exception ex)
                         {
                             skipped++;
-                            logger.Write($"No se pudo eliminar la carpeta {current}: {ex.Message}");
+
+                            logger.Write(
+                                $"No se pudo eliminar la carpeta " +
+                                $"{current}: {ex.Message}");
                         }
                     }
                 }
                 catch (Exception ex)
                 {
                     skipped++;
-                    logger.Write($"Error procesando {current}: {ex.Message}");
+
+                    logger.Write(
+                        $"Error procesando {current}: {ex.Message}");
                 }
             }
 
             logger.Write(
-                $"Fin de limpieza manual. Eliminados: {deleted}. Omitidos: {skipped}.");
+                $"Fin de limpieza manual. " +
+                $"Elementos eliminados: {deleted}. Omitidos: {skipped}.");
 
             return (deleted, skipped);
         }
 
-        // LIMPIEZA DE TEMPORALES.
+        // LIMPIEZA DE ARCHIVOS TEMPORALES.
         public (int Deleted, int Skipped) CleanTemporaryFiles()
         {
             int deleted = 0;
@@ -257,13 +291,19 @@ namespace MaxibackCleaner.Services
                 Environment.SpecialFolder.Windows);
 
             if (string.IsNullOrWhiteSpace(windowsFolder))
+            {
                 throw new InvalidOperationException(
                     "No se pudo localizar la carpeta de Windows.");
+            }
 
             string windowsTemp = Path.GetFullPath(
                 Path.Combine(windowsFolder, "Temp"));
 
-            string[] tempFolders = { userTemp, windowsTemp };
+            string[] tempFolders =
+            {
+                userTemp,
+                windowsTemp
+            };
 
             logger.Write("Inicio de limpieza de temporales.");
 
@@ -277,27 +317,38 @@ namespace MaxibackCleaner.Services
                     if (SamePath(root, driveRoot))
                     {
                         skipped++;
-                        logger.Write($"Ruta temporal rechazada: {root}");
+
+                        logger.Write(
+                            $"Ruta temporal rechazada: {root}");
+
                         continue;
                     }
 
                     if (!Directory.Exists(root))
                     {
-                        logger.Write($"Carpeta temporal inexistente: {root}");
+                        logger.Write(
+                            $"Carpeta temporal inexistente: {root}");
+
                         continue;
                     }
 
-                    CleanDirectoryContents(root, ref deleted, ref skipped);
+                    CleanDirectoryContents(
+                        root,
+                        ref deleted,
+                        ref skipped);
                 }
                 catch (Exception ex)
                 {
                     skipped++;
-                    logger.Write($"Error limpiando temporales {folder}: {ex.Message}");
+
+                    logger.Write(
+                        $"Error limpiando temporales {folder}: {ex.Message}");
                 }
             }
 
             logger.Write(
-                $"Fin de limpieza de temporales. Eliminados: {deleted}. Omitidos: {skipped}.");
+                $"Fin de limpieza de temporales. " +
+                $"Elementos eliminados: {deleted}. Omitidos: {skipped}.");
 
             return (deleted, skipped);
         }
@@ -319,11 +370,13 @@ namespace MaxibackCleaner.Services
                 {
                     try
                     {
-                        foreach (string file in Directory.GetFiles(current))
+                        foreach (string file in
+                                 Directory.GetFiles(current))
                         {
                             try
                             {
-                                FileAttributes attributes = File.GetAttributes(file);
+                                FileAttributes attributes =
+                                    File.GetAttributes(file);
 
                                 if ((attributes & FileAttributes.ReparsePoint) != 0)
                                 {
@@ -333,22 +386,28 @@ namespace MaxibackCleaner.Services
 
                                 DeleteFileSafely(file);
                                 deleted++;
-                                logger.Write($"Temporal eliminado: {file}");
+
+                                logger.Write(
+                                    $"Temporal eliminado: {file}");
                             }
                             catch (Exception ex)
                             {
                                 skipped++;
-                                logger.Write($"Temporal omitido {file}: {ex.Message}");
+
+                                logger.Write(
+                                    $"Temporal omitido {file}: {ex.Message}");
                             }
                         }
 
                         folders.Push((current, true));
 
-                        foreach (string subfolder in Directory.GetDirectories(current))
+                        foreach (string subfolder in
+                                 Directory.GetDirectories(current))
                         {
                             try
                             {
-                                FileAttributes attributes = File.GetAttributes(subfolder);
+                                FileAttributes attributes =
+                                    File.GetAttributes(subfolder);
 
                                 if ((attributes & FileAttributes.ReparsePoint) != 0)
                                 {
@@ -361,14 +420,18 @@ namespace MaxibackCleaner.Services
                             catch (Exception ex)
                             {
                                 skipped++;
-                                logger.Write($"Error revisando {subfolder}: {ex.Message}");
+
+                                logger.Write(
+                                    $"Error revisando {subfolder}: {ex.Message}");
                             }
                         }
                     }
                     catch (Exception ex)
                     {
                         skipped++;
-                        logger.Write($"Error accediendo a {current}: {ex.Message}");
+
+                        logger.Write(
+                            $"Error accediendo a {current}: {ex.Message}");
                     }
                 }
                 else
@@ -383,22 +446,30 @@ namespace MaxibackCleaner.Services
                     }
                     catch (DirectoryNotFoundException)
                     {
+                        // La carpeta ya no existe.
                     }
                     catch (Exception ex)
                     {
                         skipped++;
-                        logger.Write($"No se pudo eliminar carpeta temporal {current}: {ex.Message}");
+
+                        logger.Write(
+                            $"No se pudo eliminar carpeta temporal " +
+                            $"{current}: {ex.Message}");
                     }
                 }
             }
         }
 
+        // Elimina archivos sin seguir enlaces simbólicos.
         private static void DeleteFileSafely(string file)
         {
             FileAttributes attributes = File.GetAttributes(file);
 
             if ((attributes & FileAttributes.ReparsePoint) != 0)
-                throw new IOException("Se rechazó eliminar un enlace.");
+            {
+                throw new IOException(
+                    "Se rechazó eliminar un enlace.");
+            }
 
             if ((attributes & FileAttributes.ReadOnly) != 0)
             {
@@ -410,22 +481,30 @@ namespace MaxibackCleaner.Services
             File.Delete(file);
         }
 
+        // Valida rutas y bloquea ubicaciones críticas del sistema.
         private static string ValidateFolder(string folderPath)
         {
             if (string.IsNullOrWhiteSpace(folderPath))
-                throw new ArgumentException("La ruta está vacía.");
+            {
+                throw new ArgumentException(
+                    "La ruta está vacía.");
+            }
 
             string root = Path.GetFullPath(folderPath);
 
             if (!Directory.Exists(root))
+            {
                 throw new DirectoryNotFoundException(
                     "La carpeta no existe: " + root);
+            }
 
             string driveRoot = Path.GetPathRoot(root) ?? "";
 
             if (SamePath(root, driveRoot))
+            {
                 throw new InvalidOperationException(
                     "No se permite limpiar la raíz de una unidad.");
+            }
 
             string windowsFolder = Environment.GetFolderPath(
                 Environment.SpecialFolder.Windows);
@@ -451,25 +530,32 @@ namespace MaxibackCleaner.Services
             return root;
         }
 
+        // Solo admite las cuatro frecuencias mensuales.
         private static DateTime GetCutoff(string frequency)
         {
+            if (string.IsNullOrWhiteSpace(frequency))
+            {
+                throw new ArgumentException(
+                    "Debés indicar una frecuencia.");
+            }
+
             DateTime now = DateTime.Now;
 
             return frequency.Trim().ToLowerInvariant() switch
             {
-                "1hour" => now.AddHours(-1),
-                "1day" => now.AddDays(-1),
-                "1week" => now.AddDays(-7),
                 "1month" => now.AddMonths(-1),
                 "3months" => now.AddMonths(-3),
                 "6months" => now.AddMonths(-6),
                 "12months" => now.AddMonths(-12),
+
                 _ => throw new ArgumentException(
                     "Frecuencia no válida: " + frequency)
             };
         }
 
-        private static bool SamePath(string first, string second)
+        private static bool SamePath(
+            string first,
+            string second)
         {
             string a = Path.TrimEndingDirectorySeparator(
                 Path.GetFullPath(first));
@@ -483,7 +569,9 @@ namespace MaxibackCleaner.Services
                 StringComparison.OrdinalIgnoreCase);
         }
 
-        private static bool IsInside(string path, string protectedPath)
+        private static bool IsInside(
+            string path,
+            string protectedPath)
         {
             if (string.IsNullOrWhiteSpace(protectedPath))
                 return false;
@@ -491,8 +579,9 @@ namespace MaxibackCleaner.Services
             string fullPath = Path.TrimEndingDirectorySeparator(
                 Path.GetFullPath(path));
 
-            string fullProtected = Path.TrimEndingDirectorySeparator(
-                Path.GetFullPath(protectedPath));
+            string fullProtected =
+                Path.TrimEndingDirectorySeparator(
+                    Path.GetFullPath(protectedPath));
 
             return fullPath.Equals(
                        fullProtected,

@@ -1,4 +1,6 @@
-﻿using System;
+﻿
+using System;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
 
@@ -6,28 +8,39 @@ namespace MaxibackCleaner.Services
 {
     public class TaskSchedulerService
     {
+        private const string CleanupTaskName =
+            "Maxiback Cleaner - Limpieza";
+
+        private const string StartupTaskName =
+            "Maxiback Cleaner - Inicio";
+
         public void ConfigureTasks(string frequency = "3months")
         {
-            string[] validFrequencies =
-            {
-                "1hour",
-                "1day",
-                "1week",
-                "1month",
-                "3months",
-                "6months",
-                "12months"
-            };
+            frequency = (frequency ?? "")
+                .Trim()
+                .ToLowerInvariant();
 
-            if (Array.IndexOf(validFrequencies, frequency) < 0)
+            int intervalMonths = frequency switch
             {
-                throw new ArgumentException(
-                    "Frecuencia no válida: " + frequency);
-            }
+                "1month" => 1,
+                "3months" => 3,
+                "6months" => 6,
+                "12months" => 12,
+                _ => throw new ArgumentException(
+                    "Frecuencia no válida. Usá 1month, 3months, 6months o 12months.",
+                    nameof(frequency))
+            };
 
             string exePath = Environment.ProcessPath
                 ?? throw new InvalidOperationException(
                     "No se pudo determinar la ruta del ejecutable.");
+
+            if (!File.Exists(exePath))
+            {
+                throw new FileNotFoundException(
+                    "No se encontró el ejecutable de Maxiback Cleaner.",
+                    exePath);
+            }
 
             string appFolder = Path.Combine(
                 Environment.GetFolderPath(
@@ -45,96 +58,50 @@ namespace MaxibackCleaner.Services
             string script = $@"
 $ErrorActionPreference = 'Stop'
 
-$exe = '{escapedExe}'
-$user = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
-$frequency = '{frequency}'
+try {{
+    $exe = '{escapedExe}'
+    $frequency = '{frequency}'
+    $interval = {intervalMonths}
 
-$cleanAction = New-ScheduledTaskAction `
-    -Execute $exe `
-    -Argument ('--clean ' + $frequency)
+    # El comando se ejecutará el día 1, a las 08:00,
+    # cada N meses, según la frecuencia seleccionada.
+    $cleanupCommand = '""' + $exe + '"" --clean ' + $frequency
 
-switch ($frequency) {{
-    '1hour' {{
-        $trigger = New-ScheduledTaskTrigger `
-            -Once `
-            -At (Get-Date).AddMinutes(1) `
-            -RepetitionInterval (New-TimeSpan -Hours 1) `
-            -RepetitionDuration (New-TimeSpan -Days 3650)
+    & schtasks.exe /Create `
+        /TN '{CleanupTaskName}' `
+        /TR $cleanupCommand `
+        /SC MONTHLY `
+        /MO $interval `
+        /D 1 `
+        /ST 08:00 `
+        /F
+
+    if ($LASTEXITCODE -ne 0) {{
+        throw ""No se pudo registrar la tarea de limpieza. Código: $LASTEXITCODE""
     }}
-    '1day' {{
-        $trigger = New-ScheduledTaskTrigger `
-            -Daily -At '08:00'
+
+    # Inicia la interfaz cuando el usuario inicia sesión.
+    $startupCommand = '""' + $exe + '""'
+
+    & schtasks.exe /Create `
+        /TN '{StartupTaskName}' `
+        /TR $startupCommand `
+        /SC ONLOGON `
+        /F
+
+    if ($LASTEXITCODE -ne 0) {{
+        throw ""No se pudo registrar la tarea de inicio. Código: $LASTEXITCODE""
     }}
-    '1week' {{
-        $trigger = New-ScheduledTaskTrigger `
-            -Weekly -DaysOfWeek Monday -At '08:00'
-    }}
-    '1month' {{
-        $trigger = New-ScheduledTaskTrigger `
-            -Monthly -DaysOfMonth 1 -At '08:00'
-    }}
-    '3months' {{
-        $trigger = New-ScheduledTaskTrigger `
-            -Monthly -DaysOfMonth 1 `
-            -MonthsOfYear January,April,July,October `
-            -At '08:00'
-    }}
-    '6months' {{
-        $trigger = New-ScheduledTaskTrigger `
-            -Monthly -DaysOfMonth 1 `
-            -MonthsOfYear January,July `
-            -At '08:00'
-    }}
-    '12months' {{
-        $trigger = New-ScheduledTaskTrigger `
-            -Monthly -DaysOfMonth 1 `
-            -MonthsOfYear January `
-            -At '08:00'
-    }}
+
+    exit 0
 }}
-
-$principal = New-ScheduledTaskPrincipal `
-    -UserId $user `
-    -LogonType S4U `
-    -RunLevel Limited
-
-$settings = New-ScheduledTaskSettingsSet `
-    -StartWhenAvailable `
-    -MultipleInstances IgnoreNew
-
-$task = New-ScheduledTask `
-    -Action $cleanAction `
-    -Trigger $trigger `
-    -Principal $principal `
-    -Settings $settings
-
-Register-ScheduledTask `
-    -TaskName 'Maxiback Cleaner - Limpieza' `
-    -InputObject $task `
-    -Force | Out-Null
-
-$uiAction = New-ScheduledTaskAction -Execute $exe
-
-$logonTrigger = New-ScheduledTaskTrigger -AtLogOn -User $user
-
-$uiPrincipal = New-ScheduledTaskPrincipal `
-    -UserId $user `
-    -LogonType Interactive `
-    -RunLevel Limited
-
-$uiSettings = New-ScheduledTaskSettingsSet `
-    -MultipleInstances IgnoreNew
-
-$uiTask = New-ScheduledTask `
-    -Action $uiAction `
-    -Trigger $logonTrigger `
-    -Principal $uiPrincipal `
-    -Settings $uiSettings
-
-Register-ScheduledTask `
-    -TaskName 'Maxiback Cleaner - Inicio' `
-    -InputObject $uiTask `
-    -Force | Out-Null
+catch {{
+    $message = $_ | Out-String
+    $logPath = Join-Path $env:LOCALAPPDATA 'MaxibackCleaner\TaskSchedulerError.txt'
+    [System.IO.File]::WriteAllText($logPath, $message)
+    Write-Error $message
+    exit 1
+}}
 ";
 
             File.WriteAllText(scriptPath, script);
@@ -167,13 +134,20 @@ Register-ScheduledTask `
 
                 if (process.ExitCode != 0)
                 {
+                    string errorPath = Path.Combine(
+                        appFolder,
+                        "TaskSchedulerError.txt");
+
+                    string details = File.Exists(errorPath)
+                        ? File.ReadAllText(errorPath)
+                        : "No se generó un registro de error.";
+
                     throw new InvalidOperationException(
-                        "Windows no pudo registrar las tareas. " +
-                        "Revisá los permisos y el script generado.");
+                        "No se pudieron registrar las tareas programadas.\n\n" +
+                        details);
                 }
             }
-            catch (System.ComponentModel.Win32Exception ex)
-                when (ex.NativeErrorCode == 1223)
+            catch (Win32Exception ex) when (ex.NativeErrorCode == 1223)
             {
                 throw new InvalidOperationException(
                     "Se canceló la solicitud de permisos de administrador.");

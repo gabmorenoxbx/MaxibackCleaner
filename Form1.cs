@@ -8,6 +8,7 @@ using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Text;
 using System.Text.Json;
 using System.Windows.Forms;
 using MaxibackCleaner.Models;
@@ -63,6 +64,7 @@ namespace MaxibackCleaner
         private bool usbCreationRunning;
 
         private bool exitRequested;
+        private bool savingConfiguration;
 
         private readonly string frequencyFile = Path.Combine(
             Environment.GetFolderPath(
@@ -373,8 +375,13 @@ namespace MaxibackCleaner
             {
                 usbBootableView.BringToFront();
                 contentPanel.Controls.SetChildIndex(usbBootableView, 0);
-                if (cmbUsbDevice != null && cmbUsbDevice.Items.Count <= 1 && !usbCreationRunning)
+
+                if (cmbUsbDevice != null &&
+                    cmbUsbDevice.Items.Count <= 1 &&
+                    !usbCreationRunning)
+                {
                     _ = RefreshUsbDevicesAsync();
+                }
             }
             else
             {
@@ -491,8 +498,8 @@ namespace MaxibackCleaner
 
             var retentionCard = CreateCard(
                 "ANTIGÜEDAD DE LOS ARCHIVOS",
-                "Esta antigüedad se aplica a la limpieza automática. " +
-                "Limpiar ahora vacía inmediatamente toda la carpeta seleccionada.");
+                "Elegí cuánto tiempo deben conservarse los archivos. " +
+                "La limpieza manual elimina todo el contenido de la carpeta.");
 
             cmbMonths = new SegmentedSelector(
                 inputColor,
@@ -504,19 +511,17 @@ namespace MaxibackCleaner
                 Margin = new Padding(0, 15, 0, 0)
             };
 
+            // Solo se permiten estas cuatro frecuencias.
             cmbMonths.SetItems(
-                "60 min",
-                "24 h",
-                "7 días",
                 "1 mes",
                 "3 meses",
                 "6 meses",
-                "1 año");
+                "12 meses");
 
             cmbMonths.SelectedItem = LoadFrequencyLabel();
 
             if (cmbMonths.SelectedIndex < 0)
-                cmbMonths.SelectedIndex = 4;
+                cmbMonths.SelectedIndex = 1;
 
             lblFrequencyInfo = new Label
             {
@@ -620,13 +625,14 @@ namespace MaxibackCleaner
             usbBootableView.Visible = false;
         }
 
+
         private Panel BuildUsbBootableView()
         {
             var view = new Panel
             {
                 Dock = DockStyle.Fill,
                 BackColor = backgroundColor,
-                Padding = new Padding(30, 26, 30, 20),
+                Padding = new Padding(26, 22, 26, 18),
                 AutoScroll = true
             };
 
@@ -636,22 +642,28 @@ namespace MaxibackCleaner
                 AutoSize = true,
                 AutoSizeMode = AutoSizeMode.GrowAndShrink,
                 ColumnCount = 1,
-                RowCount = 5,
+                RowCount = 3,
                 BackColor = backgroundColor,
                 Margin = Padding.Empty,
                 Padding = Padding.Empty
             };
+
             main.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-            for (int i = 0; i < 5; i++)
+
+            for (int i = 0; i < 3; i++)
                 main.RowStyles.Add(new RowStyle(SizeType.AutoSize));
 
+            // ---------------------------------------------------------
+            // ENCABEZADO
+            // ---------------------------------------------------------
             var header = new Panel
             {
                 Dock = DockStyle.Top,
-                Height = 78,
+                Height = 70,
                 BackColor = backgroundColor,
-                Margin = new Padding(0, 0, 0, 18)
+                Margin = new Padding(0, 0, 0, 14)
             };
+
             header.Controls.Add(new Label
             {
                 Text = "USB Booteable",
@@ -660,30 +672,129 @@ namespace MaxibackCleaner
                 Font = new Font("Segoe UI", 23F, FontStyle.Bold),
                 ForeColor = textColor
             });
+
             header.Controls.Add(new Label
             {
-                Text = "Creá memorias de arranque de Windows o Linux desde una imagen ISO.",
-                Location = new Point(2, 43),
+                Text = "Creá una unidad USB de arranque desde una imagen ISO.",
+                Location = new Point(2, 42),
                 AutoSize = true,
                 Font = new Font("Segoe UI", 9.5F),
                 ForeColor = mutedColor
             });
 
-            var deviceCard = CreateCard(
-                "DISPOSITIVO USB",
-                "Se enumeran discos físicos identificados por Windows como USB. Verificá modelo y capacidad antes de continuar.");
+            // ---------------------------------------------------------
+            // TARJETA PRINCIPAL: DISTRIBUCIÓN COMPACTA TIPO RUFUS
+            // ---------------------------------------------------------
+            var configCard = new TableLayoutPanel
+            {
+                Dock = DockStyle.Top,
+                AutoSize = true,
+                AutoSizeMode = AutoSizeMode.GrowAndShrink,
+                ColumnCount = 1,
+                RowCount = 3,
+                BackColor = cardColor,
+                Padding = new Padding(18),
+                Margin = new Padding(0, 0, 0, 14)
+            };
 
-            var deviceLayout = new TableLayoutPanel
+            configCard.ColumnStyles.Add(
+                new ColumnStyle(SizeType.Percent, 100));
+
+            configCard.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            configCard.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            configCard.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+
+            var configTitle = new Label
+            {
+                Text = "PROPIEDADES DE LA UNIDAD",
+                Dock = DockStyle.Top,
+                AutoSize = true,
+                ForeColor = textColor,
+                Font = new Font("Segoe UI", 10F, FontStyle.Bold),
+                Margin = new Padding(0, 0, 0, 5)
+            };
+
+            var configDescription = new Label
+            {
+                Text = "Seleccioná el dispositivo, la imagen y el esquema de arranque.",
+                Dock = DockStyle.Top,
+                AutoSize = true,
+                ForeColor = mutedColor,
+                Font = new Font("Segoe UI", 9F),
+                Margin = new Padding(0, 0, 0, 15)
+            };
+
+            // Contenedor de campos. Las filas se definen explícitamente
+            // para evitar el apilado incorrecto de controles Dock.Top.
+            var fields = new TableLayoutPanel
+            {
+                Dock = DockStyle.Top,
+                AutoSize = true,
+                AutoSizeMode = AutoSizeMode.GrowAndShrink,
+                ColumnCount = 2,
+                RowCount = 5,
+                BackColor = cardColor,
+                Margin = Padding.Empty,
+                Padding = Padding.Empty
+            };
+
+            fields.ColumnStyles.Add(
+                new ColumnStyle(SizeType.Percent, 50));
+
+            fields.ColumnStyles.Add(
+                new ColumnStyle(SizeType.Percent, 50));
+
+            for (int i = 0; i < 5; i++)
+                fields.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+
+            // Crea un campo con etiqueta y control.
+            Panel MakeField(string caption, Control control)
+            {
+                var field = new Panel
+                {
+                    Dock = DockStyle.Fill,
+                    AutoSize = true,
+                    BackColor = cardColor,
+                    Margin = new Padding(0, 0, 12, 12),
+                    Padding = Padding.Empty
+                };
+
+                var label = new Label
+                {
+                    Text = caption,
+                    Dock = DockStyle.Top,
+                    AutoSize = true,
+                    ForeColor = mutedColor,
+                    Font = new Font("Segoe UI", 9F),
+                    Margin = new Padding(0, 0, 0, 5)
+                };
+
+                control.Dock = DockStyle.Top;
+                control.Margin = Padding.Empty;
+                control.Height = 32;
+
+                field.Controls.Add(control);
+                field.Controls.Add(label);
+
+                return field;
+            }
+
+            // Dispositivo USB + actualizar.
+            var deviceRow = new TableLayoutPanel
             {
                 Dock = DockStyle.Top,
                 AutoSize = true,
                 ColumnCount = 2,
-                RowCount = 2,
+                RowCount = 1,
                 BackColor = cardColor,
-                Margin = new Padding(0, 15, 0, 0)
+                Margin = new Padding(0, 0, 0, 5)
             };
-            deviceLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-            deviceLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 130));
+
+            deviceRow.ColumnStyles.Add(
+                new ColumnStyle(SizeType.Percent, 100));
+
+            deviceRow.ColumnStyles.Add(
+                new ColumnStyle(SizeType.Absolute, 118));
 
             cmbUsbDevice = new ComboBox
             {
@@ -694,48 +805,42 @@ namespace MaxibackCleaner
                 ForeColor = textColor,
                 FlatStyle = FlatStyle.Flat,
                 Font = new Font("Segoe UI", 10F),
-                Margin = new Padding(0, 0, 10, 8)
+                IntegralHeight = false,
+                DropDownHeight = 240
             };
-            cmbUsbDevice.Items.Add("Presioná Actualizar para buscar unidades USB");
+
+            cmbUsbDevice.Items.Add(
+                "Presioná Actualizar para buscar unidades USB");
+
             cmbUsbDevice.SelectedIndex = 0;
 
             btnRefreshUsb = CreateButton("Actualizar", inputColor);
             btnRefreshUsb.ForeColor = textColor;
             btnRefreshUsb.Dock = DockStyle.Top;
-            btnRefreshUsb.Height = 34;
-            btnRefreshUsb.Click += async (_, _) => await RefreshUsbDevicesAsync();
+            btnRefreshUsb.Height = 32;
+            btnRefreshUsb.Margin = new Padding(8, 0, 0, 0);
+            btnRefreshUsb.Click += async (_, _) =>
+                await RefreshUsbDevicesAsync();
 
-            var lblUsbWarning = new Label
-            {
-                Text = "ADVERTENCIA: la creación borra las particiones y los datos del disco seleccionado. No selecciones un disco que contenga información importante.",
-                Dock = DockStyle.Top,
-                AutoSize = true,
-                MaximumSize = new Size(760, 0),
-                ForeColor = Color.FromArgb(255, 190, 95),
-                Font = new Font("Segoe UI", 9F, FontStyle.Bold),
-                Margin = new Padding(0, 8, 0, 0)
-            };
-            deviceLayout.Controls.Add(cmbUsbDevice, 0, 0);
-            deviceLayout.Controls.Add(btnRefreshUsb, 1, 0);
-            deviceLayout.Controls.Add(lblUsbWarning, 0, 1);
-            deviceLayout.SetColumnSpan(lblUsbWarning, 2);
-            deviceCard.Controls.Add(deviceLayout);
+            deviceRow.Controls.Add(cmbUsbDevice, 0, 0);
+            deviceRow.Controls.Add(btnRefreshUsb, 1, 0);
 
-            var isoCard = CreateCard(
-                "IMAGEN ISO",
-                "Elegí una ISO válida de Windows 10, Windows 11 o una distribución Linux compatible.");
-
-            var isoLayout = new TableLayoutPanel
+            // Selector de ISO + botón Elegir.
+            var isoRow = new TableLayoutPanel
             {
                 Dock = DockStyle.Top,
                 AutoSize = true,
                 ColumnCount = 2,
                 RowCount = 1,
                 BackColor = cardColor,
-                Margin = new Padding(0, 15, 0, 0)
+                Margin = new Padding(0, 0, 0, 5)
             };
-            isoLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-            isoLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 130));
+
+            isoRow.ColumnStyles.Add(
+                new ColumnStyle(SizeType.Percent, 100));
+
+            isoRow.ColumnStyles.Add(
+                new ColumnStyle(SizeType.Absolute, 118));
 
             txtIsoPath = new TextBox
             {
@@ -745,48 +850,36 @@ namespace MaxibackCleaner
                 BackColor = inputColor,
                 ForeColor = textColor,
                 BorderStyle = BorderStyle.FixedSingle,
-                Font = new Font("Segoe UI", 10F),
-                Margin = new Padding(0, 0, 10, 0),
-                PlaceholderText = "Seleccioná un archivo .iso..."
+                Font = new Font("Segoe UI", 9.5F),
+                PlaceholderText = "Seleccioná una imagen ISO..."
             };
+
             var btnBrowseIso = CreateButton("Elegir ISO", accentColor);
             btnBrowseIso.Dock = DockStyle.Top;
-            btnBrowseIso.Height = 36;
+            btnBrowseIso.Height = 32;
+            btnBrowseIso.Margin = new Padding(8, 0, 0, 0);
+
             btnBrowseIso.Click += (_, _) =>
             {
                 using var dialog = new OpenFileDialog
                 {
                     Title = "Seleccionar imagen ISO",
-                    Filter = "Imágenes ISO (*.iso)|*.iso|Todos los archivos (*.*)|*.*",
+                    Filter = "Imágenes ISO (*.iso)|*.iso",
                     CheckFileExists = true,
                     Multiselect = false
                 };
+
                 if (dialog.ShowDialog(this) == DialogResult.OK)
                 {
                     txtIsoPath.Text = dialog.FileName;
                     AddUsbLog("ISO seleccionada: " + dialog.FileName);
                 }
             };
-            isoLayout.Controls.Add(txtIsoPath, 0, 0);
-            isoLayout.Controls.Add(btnBrowseIso, 1, 0);
-            isoCard.Controls.Add(isoLayout);
 
-            var optionsCard = CreateCard(
-                "CONFIGURACIÓN DE ARRANQUE",
-                "Elegí las opciones desde los desplegables, al estilo Rufus. En ISO híbridas de Linux se escribe la imagen directamente y las opciones de partición/formato se ignoran; para ISO de instalación de Windows se prepara la unidad y se copian sus archivos.");
+            isoRow.Controls.Add(txtIsoPath, 0, 0);
+            isoRow.Controls.Add(btnBrowseIso, 1, 0);
 
-            var options = new TableLayoutPanel
-            {
-                Dock = DockStyle.Top,
-                AutoSize = true,
-                ColumnCount = 2,
-                RowCount = 3,
-                BackColor = cardColor,
-                Margin = new Padding(0, 15, 0, 0)
-            };
-            options.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
-            options.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
-
+            // Selectores de configuración.
             ComboBox MakeCombo(string name, params string[] items)
             {
                 var combo = new ComboBox
@@ -798,108 +891,222 @@ namespace MaxibackCleaner
                     ForeColor = textColor,
                     FlatStyle = FlatStyle.Flat,
                     Font = new Font("Segoe UI", 9.5F),
-                    Margin = new Padding(0, 4, 12, 12)
+                    IntegralHeight = false
                 };
+
                 combo.Items.AddRange(items);
-                if (combo.Items.Count > 0) combo.SelectedIndex = 0;
+
+                if (combo.Items.Count > 0)
+                    combo.SelectedIndex = 0;
+
                 return combo;
             }
 
-            void AddOption(string labelText, Control control, int column, int row)
-            {
-                var wrapper = new Panel
-                {
-                    Dock = DockStyle.Fill,
-                    AutoSize = true,
-                    BackColor = cardColor,
-                    Padding = new Padding(0, 0, 12, 0),
-                    Margin = Padding.Empty
-                };
-                wrapper.Controls.Add(control);
-                wrapper.Controls.Add(new Label
-                {
-                    Text = labelText,
-                    Dock = DockStyle.Top,
-                    AutoSize = true,
-                    ForeColor = mutedColor,
-                    Font = new Font("Segoe UI", 9F),
-                    Margin = new Padding(0, 0, 0, 2)
-                });
-                options.Controls.Add(wrapper, column, row);
-            }
+            cmbPartition = MakeCombo(
+                "cmbPartition",
+                "GPT",
+                "MBR");
 
-            cmbPartition = MakeCombo("cmbPartition", "GPT", "MBR");
-            cmbTarget = MakeCombo("cmbTarget", "UEFI (no CSM)", "BIOS o UEFI-CSM");
-            cmbFileSystem = MakeCombo("cmbFileSystem", "FAT32", "NTFS");
-            cmbClusterSize = MakeCombo("cmbClusterSize", "Predeterminado", "512 bytes", "1 KB", "2 KB", "4 KB", "8 KB", "16 KB", "32 KB", "64 KB");
+            cmbTarget = MakeCombo(
+                "cmbTarget",
+                "UEFI (no CSM)",
+                "BIOS o UEFI-CSM");
+
+            cmbFileSystem = MakeCombo(
+                "cmbFileSystem",
+                "FAT32",
+                "NTFS");
+
+            cmbClusterSize = MakeCombo(
+                "cmbClusterSize",
+                "Predeterminado",
+                "512 bytes",
+                "1 KB",
+                "2 KB",
+                "4 KB",
+                "8 KB",
+                "16 KB",
+                "32 KB",
+                "64 KB");
+
             txtVolumeLabel = new TextBox
             {
                 Name = "txtVolumeLabel",
-                Text = "MAXIBACK_USB",
+                Text = "MAXIBACK",
                 Dock = DockStyle.Top,
                 BackColor = inputColor,
                 ForeColor = textColor,
                 BorderStyle = BorderStyle.FixedSingle,
-                Font = new Font("Segoe UI", 10F),
-                Margin = new Padding(0, 4, 12, 12)
+                Font = new Font("Segoe UI", 9.5F),
+                MaxLength = 11
             };
 
-            AddOption("Esquema de partición", cmbPartition, 0, 0);
-            AddOption("Sistema de destino", cmbTarget, 1, 0);
-            AddOption("Sistema de archivos", cmbFileSystem, 0, 1);
-            AddOption("Tamaño de clúster", cmbClusterSize, 1, 1);
-            AddOption("Etiqueta del volumen", txtVolumeLabel, 0, 2);
+            // Primera fila: dispositivo USB.
+            var deviceLabel = new Label
+            {
+                Text = "Dispositivo",
+                Dock = DockStyle.Top,
+                AutoSize = true,
+                ForeColor = mutedColor,
+                Font = new Font("Segoe UI", 9F),
+                Margin = new Padding(0, 0, 0, 5)
+            };
+
+            var deviceField = new Panel
+            {
+                Dock = DockStyle.Fill,
+                AutoSize = true,
+                BackColor = cardColor,
+                Margin = new Padding(0, 0, 12, 12)
+            };
+
+            deviceField.Controls.Add(deviceRow);
+            deviceField.Controls.Add(deviceLabel);
+            fields.Controls.Add(deviceField, 0, 0);
+            fields.SetColumnSpan(deviceField, 2);
+
+            // Segunda fila: ISO.
+            var isoLabel = new Label
+            {
+                Text = "Selección de arranque (imagen ISO)",
+                Dock = DockStyle.Top,
+                AutoSize = true,
+                ForeColor = mutedColor,
+                Font = new Font("Segoe UI", 9F),
+                Margin = new Padding(0, 0, 0, 5)
+            };
+
+            var isoField = new Panel
+            {
+                Dock = DockStyle.Fill,
+                AutoSize = true,
+                BackColor = cardColor,
+                Margin = new Padding(0, 0, 12, 14)
+            };
+
+            isoField.Controls.Add(isoRow);
+            isoField.Controls.Add(isoLabel);
+            fields.Controls.Add(isoField, 0, 1);
+            fields.SetColumnSpan(isoField, 2);
+
+            fields.Controls.Add(
+                MakeField("Esquema de partición", cmbPartition), 0, 2);
+
+            fields.Controls.Add(
+                MakeField("Sistema de destino", cmbTarget), 1, 2);
+
+            fields.Controls.Add(
+                MakeField("Sistema de archivos", cmbFileSystem), 0, 3);
+
+            fields.Controls.Add(
+                MakeField("Tamaño de clúster", cmbClusterSize), 1, 3);
+
+            fields.Controls.Add(
+                MakeField("Etiqueta del volumen (máx. 11 caracteres)",
+                    txtVolumeLabel), 0, 4);
 
             var lblModeNote = new Label
             {
-                Text = "UEFI + FAT32 es la opción más compatible para Windows moderno. Si install.wim supera 4 GB, el motor intenta dividirlo en archivos .swm.",
+                Text = "GPT suele utilizarse con UEFI; MBR permite configuraciones BIOS/CSM. " +
+                       "La compatibilidad final depende de la ISO y del método de escritura.",
                 Dock = DockStyle.Fill,
+                AutoSize = true,
                 ForeColor = mutedColor,
                 Font = new Font("Segoe UI", 8.5F),
-                AutoSize = true,
-                MaximumSize = new Size(760, 0),
-                Margin = new Padding(0, 5, 0, 12)
+                Margin = new Padding(0, 0, 0, 12)
             };
-            options.Controls.Add(lblModeNote, 1, 2);
 
-            var actionCard = CreateCard(
-                "CREACIÓN Y REGISTRO",
-                "La operación puede tardar varios minutos. No retires la memoria hasta que el proceso termine.");
+            fields.Controls.Add(lblModeNote, 1, 4);
+
+            var lblUsbWarning = new Label
+            {
+                Text = "ADVERTENCIA: crear el USB elimina los datos del disco seleccionado. " +
+                       "Verificá cuidadosamente el dispositivo y su capacidad antes de continuar.",
+                Dock = DockStyle.Top,
+                AutoSize = true,
+                ForeColor = Color.FromArgb(255, 190, 95),
+                Font = new Font("Segoe UI", 9F, FontStyle.Bold),
+                Margin = new Padding(0, 0, 0, 2)
+            };
+
+            configCard.Controls.Add(configTitle, 0, 0);
+            configCard.Controls.Add(configDescription, 0, 1);
+            configCard.Controls.Add(fields, 0, 2);
+
+            // ---------------------------------------------------------
+            // ESTADO, PROGRESO, REGISTRO Y BOTONES
+            // ---------------------------------------------------------
+            var actionCard = new TableLayoutPanel
+            {
+                Dock = DockStyle.Top,
+                AutoSize = true,
+                AutoSizeMode = AutoSizeMode.GrowAndShrink,
+                ColumnCount = 1,
+                RowCount = 5,
+                BackColor = cardColor,
+                Padding = new Padding(18),
+                Margin = new Padding(0, 0, 0, 12)
+            };
+
+            actionCard.ColumnStyles.Add(
+                new ColumnStyle(SizeType.Percent, 100));
+
+            for (int i = 0; i < 5; i++)
+                actionCard.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+
+            actionCard.Controls.Add(new Label
+            {
+                Text = "ESTADO DE LA OPERACIÓN",
+                Dock = DockStyle.Top,
+                AutoSize = true,
+                ForeColor = textColor,
+                Font = new Font("Segoe UI", 10F, FontStyle.Bold),
+                Margin = new Padding(0, 0, 0, 10)
+            }, 0, 0);
+
+            lblUsbProgress = new Label
+            {
+                Text = "En espera. Seleccioná el dispositivo y la ISO.",
+                Dock = DockStyle.Top,
+                AutoSize = true,
+                ForeColor = mutedColor,
+                Font = new Font("Segoe UI", 9F),
+                Margin = new Padding(0, 0, 0, 8)
+            };
+
+            actionCard.Controls.Add(lblUsbProgress, 0, 1);
 
             usbProgress = new ProgressBar
             {
                 Name = "usbProgress",
                 Dock = DockStyle.Top,
-                Height = 18,
+                Height = 14,
                 Minimum = 0,
                 Maximum = 100,
                 Value = 0,
                 Style = ProgressBarStyle.Continuous,
-                Margin = new Padding(0, 12, 0, 10)
-            };
-            lblUsbProgress = new Label
-            {
-                Text = "En espera",
-                Dock = DockStyle.Top,
-                AutoSize = true,
-                ForeColor = mutedColor,
-                Font = new Font("Segoe UI", 9F),
                 Margin = new Padding(0, 0, 0, 10)
             };
+
+            actionCard.Controls.Add(usbProgress, 0, 2);
+
             usbLog = new ListBox
             {
                 Name = "usbLog",
                 Dock = DockStyle.Top,
-                Height = 115,
+                Height = 94,
                 BackColor = inputColor,
                 ForeColor = textColor,
                 BorderStyle = BorderStyle.FixedSingle,
-                Font = new Font("Consolas", 9F),
+                Font = new Font("Consolas", 8.5F),
                 IntegralHeight = false,
                 Margin = new Padding(0, 0, 0, 12)
             };
+
             usbLog.Items.Add("Motor USB inicializado.");
-            usbLog.Items.Add("Elegí un dispositivo y una ISO para comenzar.");
+            usbLog.Items.Add("Esperando selección de dispositivo e ISO.");
+
+            actionCard.Controls.Add(usbLog, 0, 3);
 
             var buttonLayout = new FlowLayoutPanel
             {
@@ -908,24 +1115,30 @@ namespace MaxibackCleaner
                 WrapContents = true,
                 FlowDirection = FlowDirection.LeftToRight,
                 BackColor = cardColor,
-                Margin = new Padding(0, 0, 0, 0)
+                Margin = Padding.Empty,
+                Padding = Padding.Empty
             };
 
-            btnCreateUsb = CreateButton("Crear USB booteable", successColor);
-            btnCreateUsb.Width = 210;
+            btnCreateUsb = CreateButton("CREAR USB BOOTEABLE", successColor);
+            btnCreateUsb.Width = 220;
             btnCreateUsb.Height = 42;
+            btnCreateUsb.Margin = new Padding(0, 0, 10, 0);
             btnCreateUsb.Click += async (_, _) => await CreateUsbAsync();
 
             btnCancelUsb = CreateButton("Cancelar", dangerColor);
-            btnCancelUsb.Width = 120;
+            btnCancelUsb.Width = 115;
             btnCancelUsb.Height = 42;
             btnCancelUsb.Enabled = false;
+
             btnCancelUsb.Click += (_, _) =>
             {
-                if (usbCancellation != null && !usbCancellation.IsCancellationRequested)
+                if (usbCancellation != null &&
+                    !usbCancellation.IsCancellationRequested)
                 {
                     btnCancelUsb.Enabled = false;
-                    lblUsbProgress.Text = "Cancelando... la unidad puede quedar incompleta.";
+                    lblUsbProgress.Text =
+                        "Cancelando... la unidad puede quedar incompleta.";
+
                     AddUsbLog("Se solicitó cancelar la operación.");
                     usbCancellation.Cancel();
                 }
@@ -933,38 +1146,101 @@ namespace MaxibackCleaner
 
             buttonLayout.Controls.Add(btnCreateUsb);
             buttonLayout.Controls.Add(btnCancelUsb);
-            actionCard.Controls.Add(buttonLayout);
-            actionCard.Controls.Add(usbLog);
-            actionCard.Controls.Add(lblUsbProgress);
-            actionCard.Controls.Add(usbProgress);
 
-            deviceCard.Margin = new Padding(0, 0, 0, 16);
-            isoCard.Margin = new Padding(0, 0, 0, 16);
-            optionsCard.Margin = new Padding(0, 0, 0, 16);
-            actionCard.Margin = new Padding(0, 0, 0, 16);
+            actionCard.Controls.Add(buttonLayout, 0, 4);
+
+            // ---------------------------------------------------------
+            // ADVERTENCIA BAJO LA CONFIGURACIÓN
+            // ---------------------------------------------------------
+            var warningPanel = new Panel
+            {
+                Dock = DockStyle.Top,
+                AutoSize = true,
+                BackColor = cardColor,
+                Padding = new Padding(18, 0, 18, 14),
+                Margin = new Padding(0, 0, 0, 14)
+            };
+
+            warningPanel.Controls.Add(lblUsbWarning);
 
             main.Controls.Add(header, 0, 0);
-            main.Controls.Add(deviceCard, 0, 1);
-            main.Controls.Add(isoCard, 0, 2);
-            main.Controls.Add(optionsCard, 0, 3);
-            main.Controls.Add(actionCard, 0, 4);
+            main.Controls.Add(configCard, 0, 1);
+            main.Controls.Add(warningPanel, 0, 2);
 
-            view.Controls.Add(main);
+            // El panel de operación queda debajo de la configuración.
+            // Agregamos un contenedor vertical para mantener el orden.
+            var body = new TableLayoutPanel
+            {
+                Dock = DockStyle.Top,
+                AutoSize = true,
+                AutoSizeMode = AutoSizeMode.GrowAndShrink,
+                ColumnCount = 1,
+                RowCount = 2,
+                BackColor = backgroundColor,
+                Margin = Padding.Empty,
+                Padding = Padding.Empty
+            };
+
+            body.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+            body.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            body.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+
+            body.Controls.Add(configCard, 0, 0);
+            body.Controls.Add(warningPanel, 0, 1);
+
+            // Reconstruimos el contenedor raíz para que el estado
+            // permanezca debajo de la configuración.
+            var page = new TableLayoutPanel
+            {
+                Dock = DockStyle.Top,
+                AutoSize = true,
+                AutoSizeMode = AutoSizeMode.GrowAndShrink,
+                ColumnCount = 1,
+                RowCount = 3,
+                BackColor = backgroundColor,
+                Margin = Padding.Empty,
+                Padding = Padding.Empty
+            };
+
+            page.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+            page.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            page.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            page.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+
+            page.Controls.Add(header, 0, 0);
+            page.Controls.Add(configCard, 0, 1);
+            page.Controls.Add(actionCard, 0, 2);
+
+            // La advertencia ya está dentro de la tarjeta de configuración.
+            // Se mantiene en el panel de advertencia para que destaque.
+            configCard.Controls.Add(warningPanel, 0, 3);
+            configCard.RowCount = 4;
+            configCard.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+
+            view.Controls.Add(page);
+
             return view;
         }
 
+
         private async Task RefreshUsbDevicesAsync()
         {
-            if (usbCreationRunning || btnRefreshUsb == null || cmbUsbDevice == null)
+            if (usbCreationRunning ||
+                btnRefreshUsb == null ||
+                cmbUsbDevice == null)
+            {
                 return;
+            }
 
             btnRefreshUsb.Enabled = false;
             lblUsbProgress.Text = "Buscando dispositivos USB físicos...";
 
             bool comboUpdateStarted = false;
+
             try
             {
-                List<UsbDeviceInfo> devices = await Task.Run(UsbDeviceScanner.GetUsbDevices);
+                List<UsbDeviceInfo> devices =
+                    await Task.Run(UsbDeviceScanner.GetUsbDevices);
 
                 cmbUsbDevice.BeginUpdate();
                 comboUpdateStarted = true;
@@ -975,14 +1251,19 @@ namespace MaxibackCleaner
 
                 if (devices.Count == 0)
                 {
-                    cmbUsbDevice.Items.Add("No se detectaron discos USB físicos.");
+                    cmbUsbDevice.Items.Add(
+                        "No se detectaron discos USB físicos.");
+
                     cmbUsbDevice.SelectedIndex = 0;
-                    AddUsbLog("No se detectaron discos USB. Comprobá que estén conectados y que Windows los reconozca.");
+
+                    AddUsbLog(
+                        "No se detectaron discos USB. Comprobá que estén conectados y que Windows los reconozca.");
                 }
                 else
                 {
                     cmbUsbDevice.SelectedIndex = 0;
-                    AddUsbLog($"Dispositivos USB detectados: {devices.Count}.");
+                    AddUsbLog(
+                        $"Dispositivos USB detectados: {devices.Count}.");
                 }
 
                 lblUsbProgress.Text = devices.Count == 0
@@ -992,18 +1273,34 @@ namespace MaxibackCleaner
             catch (Exception ex)
             {
                 logger.Write("Error al detectar discos USB: " + ex);
-                lblUsbProgress.Text = "No se pudo consultar la lista de discos USB.";
+
+                lblUsbProgress.Text =
+                    "No se pudo consultar la lista de discos USB.";
+
                 AddUsbLog("ERROR al detectar USB: " + ex.Message);
-                MessageBox.Show(this,
-                    "No se pudo enumerar los discos USB. Comprobá que el servicio de almacenamiento de Windows esté disponible.\n\n" + ex.Message,
-                    "Detección de USB", MessageBoxButtons.OK, MessageBoxIcon.Error);
+
+                MessageBox.Show(
+                    this,
+                    "No se pudo enumerar los discos USB. Comprobá que el servicio de almacenamiento de Windows esté disponible.\n\n" +
+                    ex.Message,
+                    "Detección de USB",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Error);
             }
             finally
             {
-                if (comboUpdateStarted && cmbUsbDevice != null && !cmbUsbDevice.IsDisposed)
+                if (comboUpdateStarted &&
+                    cmbUsbDevice != null &&
+                    !cmbUsbDevice.IsDisposed)
+                {
                     cmbUsbDevice.EndUpdate();
-                if (btnRefreshUsb != null && !btnRefreshUsb.IsDisposed)
+                }
+
+                if (btnRefreshUsb != null &&
+                    !btnRefreshUsb.IsDisposed)
+                {
                     btnRefreshUsb.Enabled = true;
+                }
             }
         }
 
@@ -1014,43 +1311,77 @@ namespace MaxibackCleaner
 
             if (cmbUsbDevice.SelectedItem is not UsbDeviceInfo device)
             {
-                MessageBox.Show(this, "Seleccioná un disco USB físico válido.", "Falta seleccionar USB", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                MessageBox.Show(
+                    this,
+                    "Seleccioná un disco USB físico válido.",
+                    "Falta seleccionar USB",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Warning);
+
                 return;
             }
 
-            if (string.IsNullOrWhiteSpace(txtIsoPath.Text) || !File.Exists(txtIsoPath.Text))
+            if (string.IsNullOrWhiteSpace(txtIsoPath.Text) ||
+                !File.Exists(txtIsoPath.Text))
             {
-                MessageBox.Show(this, "Seleccioná una imagen ISO existente.", "Falta seleccionar ISO", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                MessageBox.Show(
+                    this,
+                    "Seleccioná una imagen ISO existente.",
+                    "Falta seleccionar ISO",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Warning);
+
                 return;
             }
 
-            UsbFileSystem fileSystem = cmbFileSystem.SelectedItem?.ToString() switch
+            UsbFileSystem fileSystem =
+                cmbFileSystem.SelectedItem?.ToString() switch
+                {
+                    "NTFS" => UsbFileSystem.Ntfs,
+                    "exFAT" => UsbFileSystem.ExFat,
+                    _ => UsbFileSystem.Fat32
+                };
+
+            BootTarget target =
+                (cmbTarget.SelectedItem?.ToString() ?? "")
+                    .StartsWith(
+                        "BIOS",
+                        StringComparison.OrdinalIgnoreCase)
+                    ? BootTarget.BiosOrCsm
+                    : BootTarget.Uefi;
+
+            PartitionScheme scheme =
+                cmbPartition.SelectedItem?.ToString() == "MBR"
+                    ? PartitionScheme.Mbr
+                    : PartitionScheme.Gpt;
+
+            int clusterBytes =
+                cmbClusterSize.SelectedItem?.ToString() switch
+                {
+                    "512 bytes" => 512,
+                    "1 KB" => 1024,
+                    "2 KB" => 2048,
+                    "4 KB" => 4096,
+                    "8 KB" => 8192,
+                    "16 KB" => 16384,
+                    "32 KB" => 32768,
+                    "64 KB" => 65536,
+                    _ => 0
+                };
+
+            string volumeLabel = txtVolumeLabel.Text.Trim();
+
+            if (volumeLabel.Length > 11)
             {
-                "NTFS" => UsbFileSystem.Ntfs,
-                "exFAT" => UsbFileSystem.ExFat,
-                _ => UsbFileSystem.Fat32
-            };
+                MessageBox.Show(
+                    this,
+                    "La etiqueta del volumen no puede superar los 11 caracteres.",
+                    "Etiqueta no válida",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Warning);
 
-            BootTarget target = (cmbTarget.SelectedItem?.ToString() ?? "").StartsWith("BIOS", StringComparison.OrdinalIgnoreCase)
-                ? BootTarget.BiosOrCsm
-                : BootTarget.Uefi;
-
-            PartitionScheme scheme = cmbPartition.SelectedItem?.ToString() == "MBR"
-                ? PartitionScheme.Mbr
-                : PartitionScheme.Gpt;
-
-            int clusterBytes = cmbClusterSize.SelectedItem?.ToString() switch
-            {
-                "512 bytes" => 512,
-                "1 KB" => 1024,
-                "2 KB" => 2048,
-                "4 KB" => 4096,
-                "8 KB" => 8192,
-                "16 KB" => 16384,
-                "32 KB" => 32768,
-                "64 KB" => 65536,
-                _ => 0
-            };
+                return;
+            }
 
             var options = new UsbBootOptions
             {
@@ -1061,24 +1392,41 @@ namespace MaxibackCleaner
                 Scheme = scheme,
                 Target = target,
                 FileSystem = fileSystem,
-                VolumeLabel = txtVolumeLabel.Text.Trim(),
+                VolumeLabel = volumeLabel,
                 ClusterSizeBytes = clusterBytes
             };
 
             IsoInfo iso;
+
             try
             {
-                iso = await Task.Run(() => UsbBootableService.InspectIso(options.IsoPath));
-                string? validation = UsbBootableService.Validate(options, iso, device);
+                iso = await Task.Run(
+                    () => UsbBootableService.InspectIso(options.IsoPath));
+
+                string? validation =
+                    UsbBootableService.Validate(options, iso, device);
+
                 if (validation != null)
                 {
-                    MessageBox.Show(this, validation, "Configuración no válida", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    MessageBox.Show(
+                        this,
+                        validation,
+                        "Configuración no válida",
+                        MessageBoxButtons.OK,
+                        MessageBoxIcon.Warning);
+
                     return;
                 }
             }
             catch (Exception ex)
             {
-                MessageBox.Show(this, "No se pudo validar la imagen ISO.\n\n" + ex.Message, "ISO no válida", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                MessageBox.Show(
+                    this,
+                    "No se pudo validar la imagen ISO.\n\n" + ex.Message,
+                    "ISO no válida",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Error);
+
                 return;
             }
 
@@ -1093,21 +1441,35 @@ namespace MaxibackCleaner
                 $"Capacidad: {device.SizeText}\n" +
                 $"Volúmenes actuales: {device.LettersText}\n\n" +
                 $"ISO: {Path.GetFileName(iso.Path)} ({UsbBootableService.FormatSize(iso.SizeBytes)})\n\n" +
-                $"Esquema: {scheme}\nSistema de destino: {target}\nSistema de archivos: {fileSystem}\nEtiqueta: {options.VolumeLabel}\n\n" +
+                $"Esquema: {scheme}\n" +
+                $"Sistema de destino: {target}\n" +
+                $"Sistema de archivos: {fileSystem}\n" +
+                $"Etiqueta: {options.VolumeLabel}\n\n" +
                 mode + "\n\n" +
                 "Después de confirmar, Windows solicitará permiso de administrador (UAC) para preparar la memoria.\n\n" +
                 "¿Confirmás que querés continuar?";
 
-            if (MessageBox.Show(this, confirmText, "Confirmar creación del USB", MessageBoxButtons.YesNo, MessageBoxIcon.Warning, MessageBoxDefaultButton.Button2) != DialogResult.Yes)
+            if (MessageBox.Show(
+                    this,
+                    confirmText,
+                    "Confirmar creación del USB",
+                    MessageBoxButtons.YesNo,
+                    MessageBoxIcon.Warning,
+                    MessageBoxDefaultButton.Button2)
+                != DialogResult.Yes)
+            {
                 return;
+            }
 
-            // La aplicación normal no necesita ejecutarse como administrador.
-            // Se inicia una segunda instancia elevada solamente para crear el USB.
             try
             {
                 string json = JsonSerializer.Serialize(options);
-                string encoded = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(json));
-                string exePath = Environment.ProcessPath ?? Application.ExecutablePath;
+
+                string encoded = Convert.ToBase64String(
+                    Encoding.UTF8.GetBytes(json));
+
+                string exePath = Environment.ProcessPath
+                    ?? Application.ExecutablePath;
 
                 var startInfo = new ProcessStartInfo
                 {
@@ -1119,18 +1481,37 @@ namespace MaxibackCleaner
                 };
 
                 Process.Start(startInfo);
-                AddUsbLog($"Se solicitó elevación de Windows para preparar el disco {device.DiskNumber}.");
-                lblUsbProgress.Text = "Se abrió el asistente elevado de creación USB.";
+
+                AddUsbLog(
+                    $"Se solicitó elevación de Windows para preparar el disco {device.DiskNumber}.");
+
+                lblUsbProgress.Text =
+                    "Se abrió el asistente elevado de creación USB.";
             }
             catch (Win32Exception ex) when (ex.NativeErrorCode == 1223)
             {
-                AddUsbLog("El usuario canceló el permiso de administrador (UAC).");
-                MessageBox.Show(this, "Se canceló la solicitud de permisos. La memoria USB no fue modificada.", "Permiso cancelado", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                AddUsbLog(
+                    "El usuario canceló el permiso de administrador (UAC).");
+
+                MessageBox.Show(
+                    this,
+                    "Se canceló la solicitud de permisos. La memoria USB no fue modificada.",
+                    "Permiso cancelado",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Information);
             }
             catch (Exception ex)
             {
-                AddUsbLog("No se pudo iniciar el proceso elevado: " + ex.Message);
-                MessageBox.Show(this, "No se pudo abrir el proceso con permisos de administrador.\n\n" + ex.Message, "Error de permisos", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                AddUsbLog(
+                    "No se pudo iniciar el proceso elevado: " + ex.Message);
+
+                MessageBox.Show(
+                    this,
+                    "No se pudo abrir el proceso con permisos de administrador.\n\n" +
+                    ex.Message,
+                    "Error de permisos",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Error);
             }
         }
 
@@ -1140,11 +1521,15 @@ namespace MaxibackCleaner
                 return;
 
             string line = $"[{DateTime.Now:HH:mm:ss}] {message}";
+
             usbLog.Items.Add(line);
+
             while (usbLog.Items.Count > 500)
                 usbLog.Items.RemoveAt(0);
+
             if (usbLog.Items.Count > 0)
                 usbLog.TopIndex = usbLog.Items.Count - 1;
+
             logger?.Write("USB: " + message);
         }
 
@@ -1202,6 +1587,7 @@ namespace MaxibackCleaner
             };
 
             button.FlatAppearance.BorderSize = 0;
+
             button.FlatAppearance.MouseOverBackColor =
                 ControlPaint.Light(color, 0.12f);
 
@@ -1217,32 +1603,60 @@ namespace MaxibackCleaner
                 "Limpiar ahora vacía toda la carpeta inmediatamente.";
         }
 
+        // Carga solo frecuencias válidas. Los valores antiguos se migran.
         private string LoadFrequencyLabel()
         {
             try
             {
                 if (File.Exists(frequencyFile))
                 {
-                    string key = File.ReadAllText(frequencyFile).Trim();
+                    string frequency =
+                        File.ReadAllText(frequencyFile)
+                            .Trim()
+                            .ToLowerInvariant();
 
-                    foreach (var pair in GetFrequencyMap())
+                    switch (frequency)
                     {
-                        if (pair.Value == key)
-                            return pair.Key;
+                        case "1month":
+                            return "1 mes";
+
+                        case "3months":
+                            return "3 meses";
+
+                        case "6months":
+                            return "6 meses";
+
+                        case "12months":
+                            return "12 meses";
+
+                        // Compatibilidad con configuraciones anteriores.
+                        case "1hour":
+                        case "1day":
+                        case "1week":
+                            logger.Write(
+                                "Se detectó una frecuencia antigua. Se utilizará la configuración mensual guardada.");
+
+                            break;
                     }
                 }
             }
             catch (Exception ex)
             {
                 logger.Write(
-                    "No se pudo leer la frecuencia guardada: " + ex.Message);
+                    "No se pudo leer la frecuencia guardada: " +
+                    ex.Message);
             }
 
+            return GetLabelFromSettings();
+        }
+
+        private string GetLabelFromSettings()
+        {
             return settings.RetentionMonths switch
             {
-                6 => "6 meses",
-                12 => "1 año",
                 1 => "1 mes",
+                6 => "6 meses",
+                12 => "12 meses",
                 _ => "3 meses"
             };
         }
@@ -1251,13 +1665,10 @@ namespace MaxibackCleaner
         {
             return new Dictionary<string, string>
             {
-                ["60 min"] = "1hour",
-                ["24 h"] = "1day",
-                ["7 días"] = "1week",
                 ["1 mes"] = "1month",
                 ["3 meses"] = "3months",
                 ["6 meses"] = "6months",
-                ["1 año"] = "12months"
+                ["12 meses"] = "12months"
             };
         }
 
@@ -1266,9 +1677,45 @@ namespace MaxibackCleaner
             string label = cmbMonths.SelectedItem ?? "3 meses";
             var map = GetFrequencyMap();
 
-            return map.TryGetValue(label, out string? value)
-                ? value
+            return map.TryGetValue(label, out string? frequency)
+                ? frequency
                 : "3months";
+        }
+
+        private string LoadValidFrequency()
+        {
+            try
+            {
+                if (File.Exists(frequencyFile))
+                {
+                    string frequency =
+                        File.ReadAllText(frequencyFile)
+                            .Trim()
+                            .ToLowerInvariant();
+
+                    if (frequency is
+                        "1month" or
+                        "3months" or
+                        "6months" or
+                        "12months")
+                    {
+                        return frequency;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                logger.Write(
+                    "Error leyendo la frecuencia: " + ex.Message);
+            }
+
+            return settings.RetentionMonths switch
+            {
+                1 => "1month",
+                6 => "6months",
+                12 => "12months",
+                _ => "3months"
+            };
         }
 
         private void SaveConfiguration()
@@ -1276,34 +1723,38 @@ namespace MaxibackCleaner
             string folder = txtFolder.Text.Trim();
 
             if (string.IsNullOrWhiteSpace(folder))
+            {
                 throw new InvalidOperationException(
                     "Seleccioná una carpeta para limpiar.");
+            }
 
             if (!Directory.Exists(folder))
+            {
                 throw new DirectoryNotFoundException(
                     "La carpeta seleccionada no existe: " + folder);
+            }
+
+            string frequency = GetSelectedFrequency();
 
             settings.FolderPath = Path.GetFullPath(folder);
 
-            settings.RetentionMonths = cmbMonths.SelectedItem switch
+            settings.RetentionMonths = frequency switch
             {
-                "6 meses" => 6,
-                "1 año" => 12,
-                "1 mes" => 1,
-                "7 días" => 0,
-                "24 h" => 0,
-                "60 min" => 0,
+                "1month" => 1,
+                "3months" => 3,
+                "6months" => 6,
+                "12months" => 12,
                 _ => 3
             };
-
-            settings.Save();
 
             Directory.CreateDirectory(
                 Path.GetDirectoryName(frequencyFile)!);
 
-            File.WriteAllText(
-                frequencyFile,
-                GetSelectedFrequency());
+            // Se guarda la configuración de la aplicación.
+            settings.Save();
+
+            // Se guarda una única vez la frecuencia de las tareas.
+            File.WriteAllText(frequencyFile, frequency);
         }
 
         private void BtnBrowse_Click(object? sender, EventArgs e)
@@ -1321,75 +1772,120 @@ namespace MaxibackCleaner
                 txtFolder.Text = dialog.SelectedPath;
         }
 
-        private void BtnSave_Click(object? sender, EventArgs e)
+        // La operación de PowerShell se ejecuta en segundo plano.
+        private async void BtnSave_Click(object? sender, EventArgs e)
         {
+            if (savingConfiguration)
+                return;
+
+            savingConfiguration = true;
+            btnSave.Enabled = false;
+            btnSave.Text = "Guardando...";
+
             try
             {
+                // Guardar la configuración local antes de registrar las tareas.
                 SaveConfiguration();
-                taskScheduler.ConfigureTasks(GetSelectedFrequency());
+
+                string frequency = GetSelectedFrequency();
+
+                logger.Write(
+                    "Configuración guardada. Ruta: " +
+                    settings.FolderPath +
+                    ". Frecuencia: " + frequency);
 
                 lblStatus.Text =
-                    "Configuración guardada y tarea automática actualizada.";
+                    "Configuración guardada. Registrando tareas...";
+
+                lblStatus.ForeColor = mutedColor;
+                lblStatus.Refresh();
+
+                await Task.Run(
+                    () => taskScheduler.ConfigureTasks(frequency));
+
+                if (IsDisposed || Disposing)
+                    return;
+
+                lblStatus.Text =
+                    "Configuración guardada y tareas actualizadas.";
 
                 lblStatus.ForeColor = successColor;
 
                 logger.Write(
-                    "Configuración guardada. Ruta: " + settings.FolderPath +
-                    ". Frecuencia: " + GetSelectedFrequency());
+                    "Tareas programadas configuradas: " + frequency);
 
                 MessageBox.Show(
                     this,
-                    "La configuración se guardó correctamente.",
+                    "La configuración se guardó correctamente y las tareas programadas se actualizaron.",
                     "Configuración guardada",
                     MessageBoxButtons.OK,
                     MessageBoxIcon.Information);
             }
             catch (Exception ex)
             {
-                lblStatus.Text = "No se pudo guardar la configuración.";
-                lblStatus.ForeColor = dangerColor;
+                if (!IsDisposed && !Disposing)
+                {
+                    lblStatus.Text =
+                        "No se pudo completar la configuración.";
 
-                logger.Write("Error al guardar configuración: " + ex);
+                    lblStatus.ForeColor = dangerColor;
 
-                MessageBox.Show(
-                    this,
-                    ex.Message,
-                    "Error al guardar",
-                    MessageBoxButtons.OK,
-                    MessageBoxIcon.Error);
+                    MessageBox.Show(
+                        this,
+                        ex.Message,
+                        "Error al guardar",
+                        MessageBoxButtons.OK,
+                        MessageBoxIcon.Error);
+                }
+
+                logger.Write(
+                    "Error al guardar configuración: " + ex);
+            }
+            finally
+            {
+                savingConfiguration = false;
+
+                if (!IsDisposed && !Disposing && btnSave != null)
+                {
+                    btnSave.Enabled = true;
+                    btnSave.Text = "Guardar configuración";
+                }
             }
         }
-
 
         // LIMPIEZA MANUAL COMPLETA.
         // Elimina archivos y subcarpetas sin importar su antigüedad.
         // Conserva la carpeta principal seleccionada.
-
-        private void BtnClean_Click(object? sender, EventArgs e)
+        private async void BtnClean_Click(object? sender, EventArgs e)
         {
             string folder = txtFolder.Text.Trim();
 
             if (string.IsNullOrWhiteSpace(folder))
             {
                 MessageBox.Show(
+                    this,
                     "Seleccioná una carpeta primero.",
                     "Maxiback Optimize",
                     MessageBoxButtons.OK,
                     MessageBoxIcon.Warning);
+
                 return;
             }
 
             if (!Directory.Exists(folder))
             {
                 MessageBox.Show(
+                    this,
                     "La carpeta seleccionada no existe.",
                     "Maxiback Optimize",
                     MessageBoxButtons.OK,
                     MessageBoxIcon.Warning);
+
                 return;
             }
 
             DialogResult confirmation = MessageBox.Show(
+                this,
                 $"Se eliminará todo el contenido de esta carpeta:\n\n{folder}\n\n" +
                 "Esta acción no se puede deshacer. La carpeta principal se conservará.\n\n¿Querés continuar?",
                 "Confirmar limpieza completa",
@@ -1403,8 +1899,11 @@ namespace MaxibackCleaner
             {
                 Cursor = Cursors.WaitCursor;
                 btnClean.Enabled = false;
+                btnTemp.Enabled = false;
+                btnSave.Enabled = false;
 
-                var result = cleaner.CleanAllContents(folder);
+                var result = await Task.Run(
+                    () => cleaner.CleanAllContents(folder));
 
                 string message =
                     $"Limpieza finalizada.\n\n" +
@@ -1412,8 +1911,11 @@ namespace MaxibackCleaner
                     $"Elementos omitidos o con error: {result.Skipped}";
 
                 lblStatus.Text = message.Replace("\n\n", " ");
+                lblStatus.ForeColor =
+                    result.Skipped > 0 ? dangerColor : successColor;
 
                 MessageBox.Show(
+                    this,
                     message,
                     "Resultado de limpieza",
                     MessageBoxButtons.OK,
@@ -1426,6 +1928,7 @@ namespace MaxibackCleaner
                 logger.Write("Error en limpieza manual: " + ex);
 
                 MessageBox.Show(
+                    this,
                     ex.ToString(),
                     "Error durante la limpieza",
                     MessageBoxButtons.OK,
@@ -1434,7 +1937,13 @@ namespace MaxibackCleaner
             finally
             {
                 Cursor = Cursors.Default;
-                btnClean.Enabled = true;
+
+                if (!IsDisposed && !Disposing)
+                {
+                    btnClean.Enabled = true;
+                    btnTemp.Enabled = true;
+                    btnSave.Enabled = !savingConfiguration;
+                }
             }
         }
 
@@ -1443,15 +1952,14 @@ namespace MaxibackCleaner
             RunTemporaryCleanup(true);
         }
 
-        private void RunTemporaryCleanup(bool showConfirmation)
+        private async void RunTemporaryCleanup(bool showConfirmation)
         {
             if (showConfirmation)
             {
                 DialogResult answer = MessageBox.Show(
                     this,
-                    "Se intentará eliminar archivos temporales de Windows " +
-                    "y del usuario. Algunos archivos en uso no podrán eliminarse.\n\n" +
-                    "¿Continuar?",
+                    "Se intentará eliminar archivos temporales de Windows y del usuario. " +
+                    "Algunos archivos en uso no podrán eliminarse.\n\n¿Continuar?",
                     "Limpiar temporales",
                     MessageBoxButtons.YesNo,
                     MessageBoxIcon.Warning);
@@ -1462,7 +1970,13 @@ namespace MaxibackCleaner
 
             try
             {
-                var result = cleaner.CleanTemporaryFiles();
+                btnTemp.Enabled = false;
+
+                var result = await Task.Run(
+                    () => cleaner.CleanTemporaryFiles());
+
+                if (IsDisposed || Disposing)
+                    return;
 
                 lblStatus.Text =
                     $"Temporales eliminados: {result.Deleted}. " +
@@ -1489,9 +2003,11 @@ namespace MaxibackCleaner
                     "No se pudo completar la limpieza de temporales.";
 
                 lblStatus.ForeColor = dangerColor;
-                logger.Write("Error al limpiar temporales: " + ex);
 
-                if (showConfirmation)
+                logger.Write(
+                    "Error al limpiar temporales: " + ex);
+
+                if (showConfirmation && !IsDisposed && !Disposing)
                 {
                     MessageBox.Show(
                         this,
@@ -1501,20 +2017,25 @@ namespace MaxibackCleaner
                         MessageBoxIcon.Error);
                 }
             }
+            finally
+            {
+                if (!IsDisposed && !Disposing && btnTemp != null)
+                    btnTemp.Enabled = true;
+            }
         }
 
+        // Umbral de antigüedad: exclusivamente las cuatro opciones válidas.
         private static DateTime GetCutoff(string frequency)
         {
-            return frequency switch
+            DateTime now = DateTime.Now;
+
+            return (frequency ?? "").Trim().ToLowerInvariant() switch
             {
-                "1hour" => DateTime.Now.AddHours(-1),
-                "1day" => DateTime.Now.AddDays(-1),
-                "1week" => DateTime.Now.AddDays(-7),
-                "1month" => DateTime.Now.AddMonths(-1),
-                "3months" => DateTime.Now.AddMonths(-3),
-                "6months" => DateTime.Now.AddMonths(-6),
-                "12months" => DateTime.Now.AddMonths(-12),
-                _ => DateTime.Now.AddMonths(-3)
+                "1month" => now.AddMonths(-1),
+                "3months" => now.AddMonths(-3),
+                "6months" => now.AddMonths(-6),
+                "12months" => now.AddMonths(-12),
+                _ => now.AddMonths(-3)
             };
         }
 
@@ -1528,7 +2049,7 @@ namespace MaxibackCleaner
                 (_, _) => ShowWithAdminLogin());
 
             trayMenu.Items.Add(
-                "Limpiar ahora",
+                "Limpiar por antigüedad",
                 null,
                 (_, _) => RunAutomaticCleanup());
 
@@ -1577,28 +2098,31 @@ namespace MaxibackCleaner
             {
                 if (string.IsNullOrWhiteSpace(settings.FolderPath) ||
                     !Directory.Exists(settings.FolderPath))
+                {
                     return;
+                }
 
                 if (DateTime.TryParse(
-                    settings.LastAlertDate,
-                    out DateTime lastAlertDate) &&
+                        settings.LastAlertDate,
+                        out DateTime lastAlertDate) &&
                     lastAlertDate.Date == DateTime.Today)
+                {
                     return;
+                }
 
-                string frequency = File.Exists(frequencyFile)
-                    ? File.ReadAllText(frequencyFile).Trim()
-                    : GetSelectedFrequency();
+                string frequency = LoadValidFrequency();
 
                 if (!HasFilesReachingLimit(
-                    settings.FolderPath,
-                    GetCutoff(frequency)))
+                        settings.FolderPath,
+                        GetCutoff(frequency)))
+                {
                     return;
+                }
 
                 trayIcon?.ShowBalloonTip(
                     5000,
                     "Maxiback Optimize",
-                    "Hay archivos que alcanzaron la antigüedad configurada. " +
-                    "Podés ejecutar la limpieza.",
+                    "Hay archivos que alcanzaron la antigüedad configurada. Podés ejecutar la limpieza.",
                     ToolTipIcon.Info);
 
                 settings.LastAlertDate =
@@ -1621,19 +2145,42 @@ namespace MaxibackCleaner
             {
                 foreach (string file in Directory.GetFiles(folder))
                 {
-                    if (File.GetLastWriteTime(file) <= cutoff)
-                        return true;
+                    try
+                    {
+                        FileAttributes attributes = File.GetAttributes(file);
+
+                        if ((attributes & FileAttributes.ReparsePoint) != 0)
+                            continue;
+
+                        if (File.GetLastWriteTime(file) <= cutoff)
+                            return true;
+                    }
+                    catch (IOException)
+                    {
+                    }
+                    catch (UnauthorizedAccessException)
+                    {
+                    }
                 }
 
                 foreach (string directory in Directory.GetDirectories(folder))
                 {
-                    var info = new DirectoryInfo(directory);
+                    try
+                    {
+                        var info = new DirectoryInfo(directory);
 
-                    if ((info.Attributes & FileAttributes.ReparsePoint) != 0)
-                        continue;
+                        if ((info.Attributes & FileAttributes.ReparsePoint) != 0)
+                            continue;
 
-                    if (HasFilesReachingLimit(directory, cutoff))
-                        return true;
+                        if (HasFilesReachingLimit(directory, cutoff))
+                            return true;
+                    }
+                    catch (UnauthorizedAccessException)
+                    {
+                    }
+                    catch (IOException)
+                    {
+                    }
                 }
             }
             catch (UnauthorizedAccessException)
@@ -1647,7 +2194,7 @@ namespace MaxibackCleaner
         }
 
         // Limpieza por antigüedad desde la bandeja del sistema.
-        private void RunAutomaticCleanup()
+        private async void RunAutomaticCleanup()
         {
             try
             {
@@ -1663,13 +2210,14 @@ namespace MaxibackCleaner
                     return;
                 }
 
-                string frequency = File.Exists(frequencyFile)
-                    ? File.ReadAllText(frequencyFile).Trim()
-                    : "3months";
+                string frequency = LoadValidFrequency();
+                string folder = settings.FolderPath;
 
-                int deleted = cleaner.CleanOldFiles(
-                    settings.FolderPath,
-                    frequency);
+                int deleted = await Task.Run(
+                    () => cleaner.CleanOldFiles(folder, frequency));
+
+                if (IsDisposed || Disposing)
+                    return;
 
                 trayIcon?.ShowBalloonTip(
                     4000,
@@ -1729,8 +2277,12 @@ namespace MaxibackCleaner
             }
 
             usbCancellation?.Cancel();
-            timer?.Stop();
-            timer?.Dispose();
+
+            if (timer != null)
+            {
+                timer.Stop();
+                timer.Dispose();
+            }
 
             if (trayIcon != null)
             {
@@ -1792,6 +2344,7 @@ namespace MaxibackCleaner
 
                 selectedIndex = value;
                 ApplyState();
+
                 SelectionChanged?.Invoke(this, EventArgs.Empty);
             }
         }
