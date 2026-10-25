@@ -1,45 +1,62 @@
-﻿Maxiback Cleaner
+Maxiback Optimize
 
-Maxiback Cleaner es una aplicación de escritorio desarrollada en C# con Windows Forms para automatizar la limpieza de archivos temporales, basura digital y otros archivos innecesarios en Windows.
+Maxiback Optimize (MaxibackCleaner) es una aplicación de escritorio para Windows desarrollada en C# con Windows Forms. Reúne en un solo lugar herramientas de limpieza, optimización, diagnóstico y creación de USB booteables para mantener equipos en buen estado.
 
-El proyecto surgió a partir de una necesidad de mantenimiento en equipos utilizados en bares con el sistema MaxiRest, con el objetivo de reducir la acumulación de archivos innecesarios y evitar tener que realizar limpiezas manuales periódicamente.
+El proyecto nació como una herramienta de limpieza automática para equipos utilizados en bares con el sistema MaxiRest, con el objetivo de evitar la acumulación de archivos innecesarios y las limpiezas manuales periódicas. Con el tiempo creció hasta convertirse en una suite de mantenimiento y sigue sumando funciones.
 
-La aplicación permite seleccionar cualquier carpeta de destino, configurar la antigüedad de los archivos que se desean eliminar y programar tareas automáticas de limpieza según las necesidades del equipo.
+Herramientas principales
 
-Características principales
+🧹 Limpieza
 
-* 🗂️ Limpieza configurable: permite seleccionar la carpeta que se desea mantener.
-* ⏱️ Antigüedad personalizable: configura cuándo un archivo se considera antiguo.
-* ⚙️ Automatización: programa limpiezas periódicas mediante el Programador de tareas de Windows.
-* 🧹 Limpieza manual: permite ejecutar el proceso cuando sea necesario.
-* 📋 Registro de operaciones: facilita el seguimiento de las limpiezas y los errores.
-* 🔔 Notificaciones: permite gestionar el funcionamiento desde la bandeja del sistema.
-* 🛡️ Protecciones: incorpora validaciones para evitar la limpieza de ubicaciones críticas del sistema.
-* 💽 USB booteable: prepara unidades USB a partir de ISO compatibles de Windows y escribe directamente imágenes ISO híbridas de Linux.
-* 📊 Diagnóstico de hardware: informa frecuencia de CPU, velocidad de RAM configurada y sensores de reloj de CPU/GPU cuando el hardware los expone.
+* Limpieza configurable: permite elegir la carpeta a mantener y la antigüedad de los archivos a eliminar (3 meses, 6 meses o 1 año).
+* Automatización: programa limpiezas periódicas mediante el Programador de tareas de Windows.
+* Limpieza manual y de archivos temporales de Windows y del usuario.
+* Aviso en la bandeja del sistema cuando hay archivos que alcanzaron la antigüedad configurada.
+* Registro de operaciones y errores.
+* Protecciones para evitar la limpieza de ubicaciones críticas del sistema.
+
+⚙️ Optimización de Windows
+
+* Optimización de unidades HDD y SSD.
+* Reparación de Windows con DISM y SFC.
+* Acceso rápido al sensor de almacenamiento y a las aplicaciones de inicio.
+* Vaciado de la papelera de reciclaje con verificación del resultado.
+
+📊 Diagnóstico y monitoreo
+
+* Uso en tiempo real del procesador, la memoria RAM, la tarjeta gráfica (GPU) y la unidad del sistema, con actualización automática cada segundo.
+* Informe de componentes del equipo: procesador, placa madre, memoria RAM, tarjeta gráfica, discos y BIOS, con opción de copiarlo al portapapeles.
+
+💾 Creador de USB booteable
+
+* Detección de memorias USB conectadas, con letra, capacidad y sistema de archivos. Nunca se ofrece el disco del sistema.
+* Selección de la imagen ISO (Windows 10, Windows 11 o distribuciones Linux).
+* Configuración de arranque: esquema de partición GPT o MBR, sistema de destino UEFI o BIOS, sistema de archivos, tamaño de clúster y etiqueta del volumen.
+* Dos modos según la ISO: copia de archivos para imágenes de instalación de Windows (con división automática de install.wim cuando supera el límite de 4 GB de FAT32) y escritura directa para imágenes híbridas, típicas de Linux.
+* Barra de progreso, registro de la operación y botón para cancelar.
+* Confirmación obligatoria antes de borrar la unidad: hay que escribir BORRAR.
+
+Atención: crear un USB booteable borra todos los datos de la unidad seleccionada.
+
+Requisitos
+
+* Windows 10 u 11.
+* .NET con soporte para Windows Forms (ver el archivo del proyecto para la versión).
+* Permisos de administrador para el creador de USB, la optimización de unidades y la reparación con DISM y SFC.
 
 Tecnologías utilizadas
 
 * C#
 * .NET
 * Windows Forms
-* PowerShell
+* WMI (System.Management)
+* PowerShell, diskpart y DISM
 * Windows Task Scheduler
-* WMI / System.Management
-* LibreHardwareMonitorLib para sensores de frecuencia disponibles
 
-## USB booteable: uso y limitaciones
+Estado del proyecto
 
-1. Conectá la memoria USB y abrí Maxiback Cleaner normalmente; no hace falta ejecutar toda la aplicación como administrador.
-2. Abrí **USB Booteable** y presioná **Actualizar**.
-3. Seleccioná el disco físico por número, modelo y capacidad, y elegí una ISO.
-4. Revisá el esquema de partición, destino, sistema de archivos y etiqueta.
-5. Confirmá el borrado únicamente si verificaste que el disco seleccionado es la memoria correcta. Windows mostrará el aviso UAC para conceder permisos al proceso auxiliar que prepara el USB.
-
-El proceso borra las particiones y los datos del disco seleccionado. Las ISO híbridas de Linux se escriben directamente; el resto se prepara mediante particionado y copia de archivos. La compatibilidad depende de la estructura de la ISO. Para Windows, FAT32 permite dividir `install.wim` en archivos `.swm` cuando es necesario; archivos individuales incompatibles o ISO no estándar pueden hacer que la creación falle. La aplicación principal permanece sin elevación; solo el asistente de creación se inicia como administrador después de confirmar la operación. Si se cancela el aviso UAC, no se modifica la memoria.
-
-En **Optimización de Windows → Diagnóstico del sistema → Ver componentes del equipo** se muestra la frecuencia actual informada por Windows, la velocidad nominal/configurada de cada módulo RAM y los sensores de reloj de CPU/GPU que LibreHardwareMonitor pueda leer. La frecuencia de GPU no está disponible en todos los equipos/controladores; en ese caso el informe lo indicará.
+En desarrollo activo. Se seguirán incorporando nuevas herramientas de mantenimiento, diagnóstico y administración del equipo.
 
 Objetivo del proyecto
 
-Desarrollar una herramienta liviana y configurable que permita automatizar el mantenimiento de archivos en equipos Windows, reducir tareas repetitivas y mantener ordenadas las carpetas que acumulan archivos temporales o innecesarios.
+Ofrecer una herramienta liviana y configurable que automatice el mantenimiento de equipos Windows, reduzca tareas repetitivas y concentre en una sola aplicación las utilidades que un técnico usa a diario.
