@@ -518,8 +518,8 @@ namespace MaxibackCleaner.Services
                     if (!hasEfiLoader)
                     {
                         throw new InvalidOperationException(
-                            "La ISO no contiene un cargador EFI estándar (EFI\\BOOT\\BOOTX64.EFI, BOOTIA32.EFI o BOOTAA64.EFI). " +
-                            "No se puede garantizar el arranque UEFI con el método de copia de archivos. No se modificó el USB.");
+                            $"No encontré un cargador EFI estándar en el volumen {isoLetter}: (EFI\\BOOT\\BOOTX64.EFI, BOOTIA32.EFI o BOOTAA64.EFI). " +
+                            "Se revisó la ISO montada y no se modificó el USB. Confirmá que la aplicación esté usando esta versión del servicio.");
                     }
                 }
                 else if (!File.Exists(Path.Combine(isoRoot, "boot", "bootsect.exe")))
@@ -529,7 +529,7 @@ namespace MaxibackCleaner.Services
                         "Para Linux, usá una ISO híbrida compatible con escritura directa. No se modificó el USB.");
                 }
 
-                Report(10, "Formateando la unidad...", 
+                Report(10, "Formateando la unidad...",
                     $"Modo: copia de archivos · {options.Scheme.ToString().ToUpperInvariant()} · " +
                     $"{(options.Target == BootTarget.Uefi ? "UEFI" : "BIOS/CSM")} · {fsName}.");
 
@@ -998,30 +998,67 @@ namespace MaxibackCleaner.Services
         {
             string escaped = isoPath.Replace("'", "''");
 
+            // Obtener letras desde el disco virtual concreto de esta ISO. No consultar
+            // volúmenes globales: eso podría devolver la unidad del sistema (por ejemplo C:).
             string script =
+                "$ProgressPreference = 'SilentlyContinue'; " +
                 "$ErrorActionPreference = 'Stop'; " +
-                $"Mount-DiskImage -ImagePath '{escaped}' | Out-Null; " +
-                "$letter = $null; " +
+                $"Mount-DiskImage -ImagePath '{escaped}' -ErrorAction Stop | Out-Null; " +
+                "$letters = @(); " +
                 "for ($i = 0; $i -lt 30; $i++) { " +
-                $"  $v = Get-DiskImage -ImagePath '{escaped}' | Get-Volume; " +
-                "  if ($v -and $v.DriveLetter) { $letter = $v.DriveLetter; break }; " +
-                "  Start-Sleep -Milliseconds 500 " +
+                $"  $image = Get-DiskImage -ImagePath '{escaped}' -ErrorAction Stop; " +
+                "  $volumes = @($image | Get-Volume -ErrorAction Stop); " +
+                "  foreach ($volume in $volumes) { " +
+                "    if ($volume.DriveLetter) { $letters += [string]$volume.DriveLetter }; " +
+                "  }; " +
+                "  $letters = @($letters | Select-Object -Unique); " +
+                "  if ($letters.Count -gt 0) { break }; " +
+                "  Start-Sleep -Milliseconds 500; " +
                 "}; " +
-                "if (-not $letter) { throw 'La ISO se montó pero no recibió una letra de unidad.' }; " +
-                "Write-Output $letter";
+                "if ($letters.Count -eq 0) { throw 'Windows montó la ISO, pero no asignó letra a sus propias particiones.' }; " +
+                "foreach ($letter in $letters) { Write-Output ('MAXIBACK_ISO_LETTER=' + $letter) }";
 
             string output = await RunPowerShellAsync(script, ct);
 
-            string? last = output
+            string[] reportedLetters = output
                 .Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries)
-                .LastOrDefault()?.Trim();
+                .Select(line => line.Trim())
+                .Where(line => line.StartsWith("MAXIBACK_ISO_LETTER=", StringComparison.OrdinalIgnoreCase))
+                .Select(line => line.Substring("MAXIBACK_ISO_LETTER=".Length).Trim().ToUpperInvariant())
+                .Where(letter => letter.Length == 1 && char.IsLetter(letter[0]))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToArray();
 
-            if (last == null || last.Length != 1 || !char.IsLetter(last[0]))
-                throw new InvalidOperationException("No se pudo montar la ISO. " + Tail(output));
+            string systemRoot = Path.GetPathRoot(Environment.SystemDirectory) ?? @"C:\";
+            string systemLetter = systemRoot.Substring(0, 1).ToUpperInvariant();
+            string[] letters = reportedLetters
+                .Where(letter => !letter.Equals(systemLetter, StringComparison.OrdinalIgnoreCase))
+                .ToArray();
 
-            return last.ToUpperInvariant();
+            if (letters.Length == 0)
+                throw new InvalidOperationException(
+                    "Windows no devolvió una letra válida para la ISO, o solo devolvió la unidad del sistema. " +
+                    "No se usará C: como ubicación de la ISO.");
+
+            foreach (string letter in letters)
+            {
+                string root = letter + @":\";
+                if (File.Exists(Path.Combine(root, "efi", "boot", "bootx64.efi")) ||
+                    File.Exists(Path.Combine(root, "efi", "boot", "bootia32.efi")) ||
+                    File.Exists(Path.Combine(root, "efi", "boot", "bootaa64.efi")))
+                    return letter;
+            }
+
+            foreach (string letter in letters)
+            {
+                string root = letter + @":\";
+                if (File.Exists(Path.Combine(root, "sources", "boot.wim")) ||
+                    File.Exists(Path.Combine(root, "setup.exe")))
+                    return letter;
+            }
+
+            return letters[0];
         }
-
         private async Task DismountIsoAsync(string isoPath)
         {
             try
@@ -1040,17 +1077,37 @@ namespace MaxibackCleaner.Services
 
         private static async Task<string> RunPowerShellAsync(string script, CancellationToken ct)
         {
-            string encoded = Convert.ToBase64String(Encoding.Unicode.GetBytes(script));
+            // PowerShell 5.1 puede serializar errores no controlados como CLIXML
+            // cuando stderr está redirigido. Capturamos la excepción dentro del
+            // propio proceso para devolver un mensaje legible a la interfaz.
+            string wrappedScript =
+                "$ErrorActionPreference = 'Stop'; " +
+                "try { " + script + " } " +
+                "catch { " +
+                "  [Console]::Error.WriteLine('MAXIBACK_PS_ERROR=' + $_.Exception.Message); " +
+                "  exit 1 " +
+                "}";
+
+            string encoded = Convert.ToBase64String(Encoding.Unicode.GetBytes(wrappedScript));
 
             (int code, string output) = await RunProcessAsync(
                 "powershell.exe",
-                "-NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand " + encoded,
+                "-NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand " + encoded,
                 null,
                 ct,
                 killOnCancel: true);
 
             if (code != 0)
-                throw new InvalidOperationException("PowerShell devolvió un error. " + Tail(output));
+            {
+                string message = output
+                    .Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries)
+                    .Select(line => line.Trim())
+                    .LastOrDefault(line => line.StartsWith("MAXIBACK_PS_ERROR=", StringComparison.OrdinalIgnoreCase))
+                    ?.Substring("MAXIBACK_PS_ERROR=".Length)
+                    ?? Tail(output);
+
+                throw new InvalidOperationException("PowerShell devolvió un error: " + message);
+            }
 
             return output.Trim();
         }

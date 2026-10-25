@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Diagnostics;
+using System.Globalization;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -54,6 +55,15 @@ namespace MaxibackCleaner
         private float gpuVramMb;
         private bool hasGpuSample;
         private bool gpuReading;
+        private bool hardwareSampleReading;
+        private double? cpuClockMhz;
+        private int? ramConfiguredSpeedMts;
+        private int? ramConfiguredVoltageMv;
+        private bool ramClockIsConfigured;
+        private double? gpuClockMhz;
+        private double diskReadBytesPerSecond;
+        private double diskWriteBytesPerSecond;
+        private bool hasStorageSample;
 
         private static readonly Color BackgroundColor = Color.FromArgb(15, 18, 25);
         private static readonly Color CardColor = Color.FromArgb(27, 32, 43);
@@ -298,7 +308,7 @@ namespace MaxibackCleaner
 
             detail.Text = "Calculando...";
             detail.Dock = DockStyle.Bottom;
-            detail.Height = 24;
+            detail.Height = 40;
             detail.AutoEllipsis = true;
             detail.ForeColor = MutedColor;
             detail.Font = new Font("Segoe UI", 8.5F);
@@ -792,11 +802,13 @@ namespace MaxibackCleaner
                 var sample = await Task.Run(() => (
                     Name: knownName ?? gpu.GetGpuName(),
                     Usage: gpu.GetUsagePercent(),
-                    VramMb: gpu.GetDedicatedMemoryUsedMb()));
+                    VramMb: gpu.GetDedicatedMemoryUsedMb(),
+                    ClockMhz: gpu.GetCoreClockMhz()));
 
                 gpuName = sample.Name;
                 gpuUsage = sample.Usage;
                 gpuVramMb = sample.VramMb;
+                gpuClockMhz = sample.ClockMhz;
                 hasGpuSample = true;
             }
             catch
@@ -814,6 +826,8 @@ namespace MaxibackCleaner
             if (IsDisposed || txtResults.IsDisposed || !IsHandleCreated)
                 return;
 
+            RefreshHardwareSamplesAsync();
+
             var output = new StringBuilder();
 
             output.AppendLine("DIAGNÓSTICO DEL EQUIPO");
@@ -830,8 +844,10 @@ namespace MaxibackCleaner
                 string cpuText = cpu.HasValue ? cpu.Value.ToString("0.0") + "%" : "Calculando...";
 
                 output.AppendLine("CPU: " + cpuText);
+                string cpuClockText = FormatClock(cpuClockMhz);
+                output.AppendLine("Frecuencia actual de CPU: " + cpuClockText);
                 lblCpuValue.Text = cpuText;
-                lblCpuDetail.Text = "Uso actual del procesador";
+                lblCpuDetail.Text = "Frecuencia actual: " + cpuClockText;
             }
             catch
             {
@@ -859,7 +875,16 @@ namespace MaxibackCleaner
                     output.AppendLine($"Uso de memoria: {memory.MemoryLoad}%");
 
                     lblRamValue.Text = memory.MemoryLoad + "%";
-                    lblRamDetail.Text = $"{used:0.0} GB de {total:0.0} GB utilizados";
+                    string ramSpeedText = ramConfiguredSpeedMts.HasValue
+                        ? $"Velocidad: {ramConfiguredSpeedMts.Value} MT/s" +
+                          (ramClockIsConfigured ? " (config.)" : " (BIOS)")
+                        : "Velocidad no disponible";
+                    string ramVoltageText = ramConfiguredVoltageMv.HasValue && ramConfiguredVoltageMv.Value > 0
+                        ? $"Voltaje: {ramConfiguredVoltageMv.Value / 1000d:0.00} V"
+                        : "Voltaje: no informado";
+                    lblRamDetail.Text = ramSpeedText + Environment.NewLine + ramVoltageText;
+                    output.AppendLine("Velocidad RAM: " + ramSpeedText);
+                    output.AppendLine(ramVoltageText);
                 }
             }
             catch
@@ -880,8 +905,12 @@ namespace MaxibackCleaner
                 output.AppendLine($"Uso de GPU: {gpuUsage:0.0}%");
                 output.AppendLine($"Memoria de video en uso: {gpuVramMb:0} MB");
 
+                string gpuClockText = gpuClockMhz.HasValue
+                    ? FormatClock(gpuClockMhz)
+                    : "no disponible";
+                output.AppendLine("Frecuencia gráfica actual: " + gpuClockText);
                 lblGpuValue.Text = $"{gpuUsage:0}%";
-                lblGpuDetail.Text = $"VRAM en uso: {gpuVramMb:0} MB";
+                lblGpuDetail.Text = "Reloj: " + gpuClockText;
             }
             else
             {
@@ -914,13 +943,21 @@ namespace MaxibackCleaner
                         : 0;
 
                     output.AppendLine($"  Ocupado: {used:0.0}%");
+                    if (string.Equals(drive.Name, systemDrive, StringComparison.OrdinalIgnoreCase))
+                    {
+                        string ioText = hasStorageSample
+                            ? $"Lectura: {ToMbPerSecond(diskReadBytesPerSecond):0.0} MB/s | Escritura: {ToMbPerSecond(diskWriteBytesPerSecond):0.0} MB/s"
+                            : "Lectura/escritura: calculando...";
+                        output.AppendLine("  Actividad actual: " + ioText);
+                    }
 
                     if (string.Equals(drive.Name, systemDrive,
                         StringComparison.OrdinalIgnoreCase))
                     {
                         lblDriveValue.Text = $"{used:0}%";
-                        lblDriveDetail.Text =
-                            $"{ToGb((ulong)drive.AvailableFreeSpace):0.0} GB libres";
+                        lblDriveDetail.Text = hasStorageSample
+                            ? $"L {ToMbPerSecond(diskReadBytesPerSecond):0.0} / E {ToMbPerSecond(diskWriteBytesPerSecond):0.0} MB/s"
+                            : "Midiendo lectura/escritura...";
                     }
                 }
                 catch
@@ -968,6 +1005,253 @@ namespace MaxibackCleaner
             }
         }
 
+        private async void RefreshHardwareSamplesAsync()
+        {
+            if (hardwareSampleReading)
+                return;
+
+            hardwareSampleReading = true;
+
+            try
+            {
+                var sample = await Task.Run(() => (
+                    CpuMhz: ReadCpuClockMhz(),
+                    RamInfo: ReadRamHardwareInfo(),
+                    Disk: ReadDiskThroughput()));
+
+                if (IsDisposed || Disposing)
+                    return;
+
+                cpuClockMhz = sample.CpuMhz;
+                ramConfiguredSpeedMts = sample.RamInfo.ClockMhz;
+                ramConfiguredVoltageMv = sample.RamInfo.VoltageMv;
+                ramClockIsConfigured = sample.RamInfo.IsConfigured;
+
+                if (sample.Disk.HasValue)
+                {
+                    diskReadBytesPerSecond = sample.Disk.Value.Read;
+                    diskWriteBytesPerSecond = sample.Disk.Value.Write;
+                    hasStorageSample = true;
+                }
+            }
+            catch
+            {
+                // Las métricas no disponibles se muestran como tales sin bloquear la pantalla.
+            }
+            finally
+            {
+                hardwareSampleReading = false;
+            }
+        }
+
+        private static double? ReadCpuClockMhz()
+        {
+            try
+            {
+                using var searcher = new ManagementObjectSearcher(
+                    "SELECT CurrentClockSpeed FROM Win32_Processor");
+                using var results = searcher.Get();
+
+                double total = 0;
+                int count = 0;
+
+                foreach (ManagementObject obj in results)
+                {
+                    using (obj)
+                    {
+                        if (obj["CurrentClockSpeed"] == null)
+                            continue;
+
+                        double value = Convert.ToDouble(obj["CurrentClockSpeed"]);
+                        if (value <= 0)
+                            continue;
+
+                        total += value;
+                        count++;
+                    }
+                }
+
+                return count == 0 ? null : total / count;
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        private static (int? ClockMhz, int? VoltageMv, bool IsConfigured) ReadRamHardwareInfo()
+        {
+            int? clockMhz = null;
+            int? voltageMv = null;
+            bool configured = false;
+
+            try
+            {
+                using var searcher = new ManagementObjectSearcher(
+                    "SELECT ConfiguredClockSpeed, ConfiguredVoltage FROM Win32_PhysicalMemory");
+                using var results = searcher.Get();
+
+                int fastestClock = 0;
+                int highestVoltage = 0;
+                foreach (ManagementObject obj in results)
+                {
+                    using (obj)
+                    {
+                        int reportedClock = Convert.ToInt32(obj["ConfiguredClockSpeed"] ?? 0);
+                        int reportedVoltage = Convert.ToInt32(obj["ConfiguredVoltage"] ?? 0);
+                        if (reportedClock > 0 && reportedClock < ushort.MaxValue)
+                            fastestClock = Math.Max(fastestClock, reportedClock);
+                        if (reportedVoltage > 0 && reportedVoltage < ushort.MaxValue)
+                            highestVoltage = Math.Max(highestVoltage, reportedVoltage);
+                    }
+                }
+
+                if (fastestClock > 0)
+                {
+                    clockMhz = fastestClock;
+                    configured = true;
+                }
+
+                if (highestVoltage > 0)
+                    voltageMv = highestVoltage;
+            }
+            catch
+            {
+                // Se intenta leer SMBIOS directamente si WMI no publica los sensores.
+            }
+
+            (int? ConfiguredSpeed, int? NominalSpeed, int? Voltage) smbios = ReadSmbiosRamInfo();
+            if (!clockMhz.HasValue)
+            {
+                clockMhz = smbios.ConfiguredSpeed ?? smbios.NominalSpeed;
+                configured = smbios.ConfiguredSpeed.HasValue;
+            }
+
+            if (!voltageMv.HasValue)
+                voltageMv = smbios.Voltage;
+
+            return (clockMhz, voltageMv, configured);
+        }
+
+        private static (int? ConfiguredSpeed, int? NominalSpeed, int? Voltage) ReadSmbiosRamInfo()
+        {
+            const uint RsmbProvider = 0x52534D42; // "RSMB"
+            IntPtr buffer = IntPtr.Zero;
+
+            try
+            {
+                uint required = GetSystemFirmwareTable(RsmbProvider, 0, IntPtr.Zero, 0);
+                if (required < 8 || required > int.MaxValue)
+                    return (null, null, null);
+
+                buffer = Marshal.AllocHGlobal((int)required);
+                uint written = GetSystemFirmwareTable(RsmbProvider, 0, buffer, required);
+                if (written < 8 || written > required)
+                    return (null, null, null);
+
+                byte[] raw = new byte[(int)written];
+                Marshal.Copy(buffer, raw, 0, (int)written);
+
+                uint declaredLength = BitConverter.ToUInt32(raw, 4);
+                int tableLength = (int)Math.Min(declaredLength, (uint)(raw.Length - 8));
+                int index = 8;
+                int configuredSpeed = 0;
+                int nominalSpeed = 0;
+                int voltageMv = 0;
+
+                while (index + 4 <= 8 + tableLength)
+                {
+                    byte type = raw[index];
+                    int structureLength = raw[index + 1];
+                    if (structureLength < 4 || index + structureLength > 8 + tableLength)
+                        break;
+
+                    if (type == 127)
+                        break;
+
+                    if (type == 17)
+                    {
+                        // SMBIOS Type 17: Speed at offset 21; configured speed at 32;
+                        // configured voltage at 38. Values are supplied by system firmware.
+                        if (structureLength >= 23)
+                        {
+                            int value = BitConverter.ToUInt16(raw, index + 21);
+                            if (value > 0 && value < ushort.MaxValue)
+                                nominalSpeed = Math.Max(nominalSpeed, value);
+                        }
+                        if (structureLength >= 34)
+                        {
+                            int value = BitConverter.ToUInt16(raw, index + 32);
+                            if (value > 0 && value < ushort.MaxValue)
+                                configuredSpeed = Math.Max(configuredSpeed, value);
+                        }
+                        if (structureLength >= 40)
+                        {
+                            int value = BitConverter.ToUInt16(raw, index + 38);
+                            if (value > 0 && value < ushort.MaxValue)
+                                voltageMv = Math.Max(voltageMv, value);
+                        }
+                    }
+
+                    int next = index + structureLength;
+                    while (next + 1 < 8 + tableLength &&
+                           !(raw[next] == 0 && raw[next + 1] == 0))
+                        next++;
+
+                    if (next + 1 >= 8 + tableLength)
+                        break;
+
+                    index = next + 2;
+                }
+
+                return (
+                    configuredSpeed > 0 ? configuredSpeed : null,
+                    nominalSpeed > 0 ? nominalSpeed : null,
+                    voltageMv > 0 ? voltageMv : null);
+            }
+            catch
+            {
+                return (null, null, null);
+            }
+            finally
+            {
+                if (buffer != IntPtr.Zero)
+                    Marshal.FreeHGlobal(buffer);
+            }
+        }
+        private static (double Read, double Write)? ReadDiskThroughput()
+        {
+            try
+            {
+                using var searcher = new ManagementObjectSearcher(
+                    "SELECT Name, DiskReadBytesPersec, DiskWriteBytesPersec " +
+                    "FROM Win32_PerfFormattedData_PerfDisk_PhysicalDisk " +
+                    "WHERE Name='_Total'");
+                using var results = searcher.Get();
+
+                foreach (ManagementObject obj in results)
+                {
+                    using (obj)
+                    {
+                        double read = Convert.ToDouble(obj["DiskReadBytesPersec"] ?? 0);
+                        double write = Convert.ToDouble(obj["DiskWriteBytesPersec"] ?? 0);
+                        return (read, write);
+                    }
+                }
+            }
+            catch
+            {
+                // Algunos equipos deshabilitan los contadores de rendimiento de disco.
+            }
+
+            return null;
+        }
+
+        private static string FormatClock(double? mhz) =>
+            mhz.HasValue && mhz.Value > 0 ? $"{mhz.Value:0} MHz" : "no disponible";
+
+        private static double ToMbPerSecond(double bytesPerSecond) =>
+            bytesPerSecond / 1024d / 1024d;
         private double? ReadCpuUsage()
         {
             if (!GetSystemTimes(out FileTime idleTime,
@@ -1024,6 +1308,9 @@ namespace MaxibackCleaner
         [DllImport("user32.dll", CharSet = CharSet.Auto)]
         private static extern IntPtr SendMessage(
             IntPtr hWnd, int msg, IntPtr wParam, IntPtr lParam);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern uint GetSystemFirmwareTable(uint providerSignature, uint firmwareTableId, IntPtr buffer, uint bufferSize);
 
         [DllImport("kernel32.dll", SetLastError = true)]
         [return: MarshalAs(UnmanagedType.Bool)]
@@ -1187,6 +1474,51 @@ namespace MaxibackCleaner
             }
         }
 
+        /// <summary>
+        /// Reloj gráfico actual cuando está disponible mediante la herramienta oficial
+        /// de NVIDIA. Windows no ofrece una fuente genérica equivalente para todos los fabricantes.
+        /// </summary>
+        public double? GetCoreClockMhz()
+        {
+            try
+            {
+                var startInfo = new ProcessStartInfo
+                {
+                    FileName = "nvidia-smi",
+                    Arguments = "--query-gpu=clocks.current.graphics --format=csv,noheader,nounits",
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true
+                };
+
+                using var process = Process.Start(startInfo);
+                if (process == null)
+                    return null;
+
+                if (!process.WaitForExit(1500))
+                {
+                    process.Kill(true);
+                    return null;
+                }
+
+                string value = process.StandardOutput
+                    .ReadToEnd()
+                    .Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries)
+                    .Select(line => line.Trim())
+                    .FirstOrDefault() ?? "";
+
+                return double.TryParse(value, NumberStyles.Float,
+                    CultureInfo.InvariantCulture, out double mhz) && mhz > 0
+                    ? mhz
+                    : null;
+            }
+            catch
+            {
+                // Sin NVIDIA/nvidia-smi no existe una lectura genérica fiable de reloj GPU.
+                return null;
+            }
+        }
         public void Dispose()
         {
         }
